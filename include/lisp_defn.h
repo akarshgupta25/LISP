@@ -47,6 +47,7 @@
 
 #define LISP_DEF_AUTH_DATA_LEN 4
 #define LISP_DEF_RECORD_TLL    0
+#define LISP_DEF_MAP_VER_NUM   1
 
 /* Forward declaration */
 struct __tEidPrefixRlocMap;
@@ -89,6 +90,21 @@ int LispSendSolicitMapRequest (uint32_t srcEid, uint32_t dstEid,
                                struct sockaddr_in dstAddr, int dstAddrLen);
 int LispSendPktEndSys (uint8_t eidIfNum, uint8_t *pIpv4Pkt, uint16_t ipv4PktLen);
 
+/* Functions defined in lisp_msmr.c */
+int LispMSMRInit (void);
+void CleanupMSMR (void);
+int LispMSMROpenControlSocket (void);
+int LispMSMRProcessMapRequest (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
+                               struct sockaddr_in itrAddr, int itrAddrLen);
+int LispMSMRProcessMapRegister (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
+                                struct sockaddr_in itrAddr, int itrAddrLen);
+struct __tEidPrefixRlocMap *LispMSMRGetEidToRlocMap (uint32_t eid);
+int LispMSMRAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
+                                uint32_t recTtl, uint8_t isProxySet);
+int LispSendMapReply (uint32_t eid, uint32_t mask, uint32_t rloc, uint32_t ttl,
+                      struct sockaddr_in dstAddr, int dstAddrLen);
+uint8_t *LispConstructMapReply (uint32_t eid, uint8_t prefLen, uint32_t rloc,
+                                uint32_t ttl, uint16_t *pMapRepMsgLen);
 
 /* Debug/Output Functions */
 void PrintUsage (void);
@@ -96,5 +112,6 @@ void DumpCmdLineArg (void);
 void DumpPacket (char *au1Packet, int len);
 void DumpSockFd (void);
 void DumpLocalMapCache (void);
+void DumpMSMRMapDb (void);
 
 #endif /* __LISP_DEFN_H__ */

@@ -10,6 +10,7 @@
 #include "lisp_hdrs.h"
 
 extern tLispGlobals gLispGlob;
+extern tLispMSMRGlobals gLispMSMRGlob;
 
 int LispOpenEidSockets (void)
 {
@@ -274,6 +275,8 @@ int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc)
 
     if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
     {
+        free (pMapCacheEntry);
+        pMapCacheEntry = NULL;
         return LISP_FAILURE;
     }
     mask = htonl (mask);

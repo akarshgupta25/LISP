@@ -29,6 +29,8 @@ typedef struct __tEidPrefixRlocMap
     struct list_head list;
     tEidPrefix       eidPrefix;
     uint32_t         rloc;
+    uint32_t         recTtl;
+    uint8_t          isProxySet;
 } tEidPrefixRlocMap;
 
 typedef struct
@@ -49,6 +51,12 @@ typedef struct
     struct list_head   itrEidRlocMapCacheHead;
     pthread_mutex_t    itrMapCacheLock;
 } tLispGlobals;
+
+typedef struct
+{
+    int                lispCntrlSock; /* Rx/Tx control packets to xTR */
+    struct list_head   eidRlocMapDbHead;
+} tLispMSMRGlobals;
 
 typedef struct
 {
