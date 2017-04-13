@@ -70,7 +70,8 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
 {
     struct sockaddr_ll recvAddr;
     struct sockaddr_in etrAddr;
-    tIpv4Hdr           *pIpv4Pkt;
+    tIpv4Hdr           *pIpv4Pkt = NULL;
+    tArpHdr            *pArpHdr = NULL;
     tEidPrefixRlocMap  *pEidRlocMapEntry = NULL;
     uint8_t            *pLispEncpDataPkt = NULL;
     int                sockFd = 0;
@@ -102,12 +103,45 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
         return LISP_FAILURE;
     }
 
+    if (LispGetIfIpAddr (eidIfNum, &ifIpAddr) != LISP_SUCCESS)
+    {
+        printf ("Could not fetch EID interface IP address!!\r\n");
+        return LISP_FAILURE;
+    }
+
     l3HdrOffset += (2 * LISP_MAC_ADDR_LEN);
     ethType = htons (LISP_VLAN_TPID);
     if (!memcmp (endSysData + l3HdrOffset, &ethType, sizeof (ethType)))
     {
         l3HdrOffset += LISP_VLAN_TAG_LEN;
     }
+
+    ethType = htons (LISP_ARP_ETHTYPE);
+    if (!memcmp (endSysData + l3HdrOffset, &ethType, sizeof (ethType)))
+    {
+        /* If ARP is received from mobile device then add to mobile device
+         * list, and then drop packet */
+        pArpHdr = (tArpHdr *) (endSysData + l3HdrOffset + sizeof (ethType));
+        memcpy (&srcEid, pArpHdr->srcIpAddr, sizeof (srcEid));
+        memcpy (&dstEid, pArpHdr->dstIpAddr, sizeof (dstEid));
+        if (((srcEid & gLispGlob.eidRlocMap[eidIfNum].eidPrefix.mask) !=
+              gLispGlob.eidRlocMap[eidIfNum].eidPrefix.eid) && 
+             (srcEid != ifIpAddr)) /* packet is not sent by local host */
+        {
+            if (LispGetMobileEidEntry (srcEid, eidIfNum) == NULL)
+            {
+                printf ("Mobile Eid discovered!! Sending Map-Register..\r\n");
+                LispSendMapRegister (srcEid, LISP_MAX_PREF_LEN,
+                                     gLispGlob.eidRlocMap[eidIfNum].rloc);
+                LispAddMobileEidEntry (srcEid, LISP_MAX_PREF_LEN, eidIfNum);
+            }
+        }
+
+        /* Only process IP packets */
+        printf ("Pkt Rx on raw socket is not IP!!\r\n");
+        return LISP_SUCCESS;
+    }
+
     /* Only process IP packets */
     ethType = htons (LISP_IPV4_ETHTYPE);
     if (memcmp (endSysData + l3HdrOffset, &ethType, sizeof (ethType)))
@@ -123,32 +157,33 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
 
     /* If source EID is different from ETR EID-prefix then it is 
      * received from a mobile device */
-    if ((srcEid & gLispGlob.eidRlocMap[eidIfNum].eidPrefix.mask) !=
-        gLispGlob.eidRlocMap[eidIfNum].eidPrefix.eid)
+    if (((srcEid & gLispGlob.eidRlocMap[eidIfNum].eidPrefix.mask) !=
+         gLispGlob.eidRlocMap[eidIfNum].eidPrefix.eid) &&
+        (srcEid != ifIpAddr)) /* packet is not sent by local host */
     {
-        /* NOTE: Need to add code here */ 
         /* Check if srcEid is present in list of registered mobile devices:
          * 1) If present then continue processing the packet
          * 2) Otherwise send map register message and add device in list of
          *    registered mobile devices */
-        LispSendMapRegister (srcEid, LISP_MAX_PREF_LEN,
-                             gLispGlob.eidRlocMap[eidIfNum].rloc);
-        return LISP_SUCCESS;
+        if (LispGetMobileEidEntry (srcEid, eidIfNum) == NULL)
+        {
+            printf ("Mobile Eid discovered!! Sending Map-Register..\r\n");
+            LispSendMapRegister (srcEid, LISP_MAX_PREF_LEN,
+                                 gLispGlob.eidRlocMap[eidIfNum].rloc);
+            LispAddMobileEidEntry (srcEid, LISP_MAX_PREF_LEN, eidIfNum);
+            return LISP_SUCCESS; /* NOTE: Check whether this is needed */
+        }
     }
 
-    /* Do not process packet to/from local host */
-    if (LispGetIfIpAddr (eidIfNum, &ifIpAddr) != LISP_SUCCESS)
-    {
-        printf ("Could not fetch EID interface IP address!!\r\n");
-        return LISP_FAILURE;
-    }
     if ((dstEid == ifIpAddr) || (srcEid == ifIpAddr))
     {
         printf ("Local host packet, do not process!!\r\n");
         return LISP_SUCCESS;
     }
 
+#if 0
     DumpPacket ((char *) pIpv4Pkt, dataLen - l3HdrOffset);
+#endif
 
     /* Search destination EID to RLOC mapping in local cache */
     pEidRlocMapEntry = LispGetEidToRlocMap (dstEid);
@@ -248,7 +283,10 @@ int LispRecvMapSRPkt (int sockFd)
     pLoc = (tRlocLoc *)
            (((uint8_t *) pRlocRec) + sizeof (tRlocRecord));
 
-    LispAddRlocEidMapEntry (eid, pRlocRec->eidPrefLen, pLoc->rloc);
+    printf ("Adding mapping entry Rx from MSMR in local cache..\r\n");
+    LispAddRlocEidMapEntry (eid, pRlocRec->eidPrefLen, pLoc->rloc, 
+                            pRlocRec->recTtl);
+    DumpLocalMapCache();
 
     return LISP_SUCCESS;
 }
@@ -352,7 +390,6 @@ int LispItrProcessMapRequest (uint8_t *pCntrlPkt, uint16_t cntrlPktLen)
     /* Only process Solicit Map Request */
     if (pSMReqMsg->smrBit != 1)
     {
-        /* This is not SMR */
         return LISP_SUCCESS;
     }
     if (pSMReqMsg->recordCount == 0)
@@ -388,6 +425,7 @@ int LispItrProcessMapRequest (uint8_t *pCntrlPkt, uint16_t cntrlPktLen)
         return LISP_FAILURE;
     }
 
+    printf ("Solicit Map-Request Rx, sending Map-Request!!\r\n");
     memset (&mapSRAddr, 0, sizeof (mapSRAddr));
     mapSRAddr.sin_family = AF_INET;
     mapSRAddr.sin_port = htons (LISP_CNTRL_PKT_UDP_PORT);

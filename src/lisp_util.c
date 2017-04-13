@@ -261,7 +261,8 @@ tEidPrefixRlocMap *LispGetEidToRlocMap (uint32_t eid)
     return pBestCacheEntry;
 }
 
-int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc)
+int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
+                            uint32_t recTtl)
 {
     tEidPrefixRlocMap *pMapCacheEntry = NULL;
     uint32_t          mask = 0;
@@ -285,6 +286,7 @@ int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc)
     pMapCacheEntry->eidPrefix.eid = eid & mask;
     pMapCacheEntry->eidPrefix.mask = mask;
     pMapCacheEntry->rloc = rloc;
+    pMapCacheEntry->recTtl = recTtl;
 
     pthread_mutex_lock (&gLispGlob.itrMapCacheLock);
     list_add_head ((struct list_head *) pMapCacheEntry,
@@ -342,14 +344,148 @@ uint8_t LispConvertMaskToPrefLen (uint32_t mask)
     return (LISP_MAX_PREF_LEN - bit);
 }
 
-void *LispGetMovedEidEntry (uint32_t eid)
+int LispAddMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum)
 {
-    return NULL;
+    tMobileEidEntry   *pMobileEidEntry = NULL;
+    uint32_t          mask = 0;
+
+    pMobileEidEntry = (tMobileEidEntry *) malloc (sizeof (tMobileEidEntry));
+    if (pMobileEidEntry == NULL)
+    {
+        printf ("Failed to allocate memory to Mobile EID entry!!\r\n");
+        return LISP_FAILURE;
+    }
+    memset (pMobileEidEntry, 0, sizeof (tMobileEidEntry));
+
+    if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
+    {
+        printf ("[%s]: Invalid prefix mask!!\r\n", __func__);
+        free (pMobileEidEntry);
+        pMobileEidEntry = NULL;
+        return LISP_FAILURE;
+    }
+    mask = htonl (mask);
+
+    pMobileEidEntry->eidPrefix.eid = eid & mask;
+    pMobileEidEntry->eidPrefix.mask = mask;
+    pMobileEidEntry->rloc = gLispGlob.eidRlocMap[eidIfNum].rloc;
+    pMobileEidEntry->eidIfNum = eidIfNum;
+
+    pthread_mutex_lock (&gLispGlob.mobileEidLock);
+    list_add_head ((struct list_head *) pMobileEidEntry,
+                   &gLispGlob.mobileEidListHead);
+    pthread_mutex_unlock (&gLispGlob.mobileEidLock);
+
+    return LISP_SUCCESS;
 }
 
-void *LispGetMobileEidEntry (uint32_t eid)
+tMobileEidEntry *LispGetMobileEidEntry (uint32_t eid, uint8_t eidIfNum)
 {
-    return NULL;
+    tMobileEidEntry   *pMobileEidEntry = NULL;
+    tMobileEidEntry   *pBestMobileEidEntry = NULL;
+    struct list_head  *pList = NULL;
+    uint32_t          bestEntryMask = 0;
+    uint32_t          currEntryMask = 0;
+
+    pthread_mutex_lock (&gLispGlob.mobileEidLock);
+
+    list_for_each (pList, &gLispGlob.mobileEidListHead)
+    {
+        pMobileEidEntry = (tMobileEidEntry *) pList;
+
+        if (pMobileEidEntry->eidIfNum != eidIfNum)
+        {
+            continue;
+        }
+        if ((eid & pMobileEidEntry->eidPrefix.mask) !=
+            (pMobileEidEntry->eidPrefix.eid))
+        {
+            continue;
+        }
+
+        if (pBestMobileEidEntry == NULL)
+        {
+            pBestMobileEidEntry = pMobileEidEntry;
+            continue;
+        }
+
+        bestEntryMask = ntohl (pBestMobileEidEntry->eidPrefix.mask);
+        currEntryMask = ntohl (pMobileEidEntry->eidPrefix.mask);
+        if (LispConvertMaskToPrefLen (currEntryMask) >
+            LispConvertMaskToPrefLen (bestEntryMask))
+        {
+            pBestMobileEidEntry = pMobileEidEntry;
+        }
+    }
+
+    pthread_mutex_unlock (&gLispGlob.mobileEidLock);
+    return pBestMobileEidEntry;
+}
+
+int LispAddMovedEidEntry (uint32_t eid, uint8_t prefLen)
+{
+    tMovedEidEntry   *pMovedEidEntry = NULL;
+    uint32_t         mask = 0;
+
+    if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
+    {
+        printf ("[%s]: Invalid Mask!!\r\n", __func__);
+        return LISP_FAILURE;
+    }
+    mask = htonl (mask);
+
+    pMovedEidEntry = (tMovedEidEntry *) malloc (sizeof (tMovedEidEntry));
+    if (pMovedEidEntry == NULL)
+    {
+        printf ("Failed to allocate memory to Moved EID entry!!\r\n");
+        return LISP_FAILURE;
+    }
+    memset (pMovedEidEntry, 0, sizeof (tMovedEidEntry));
+
+    pMovedEidEntry->eidPrefix.eid = eid & mask;
+    pMovedEidEntry->eidPrefix.mask = mask;
+
+    pthread_mutex_lock (&gLispGlob.movedEidLock);
+    list_add_head ((struct list_head *) pMovedEidEntry,
+                   &gLispGlob.movedEidListHead);
+    pthread_mutex_unlock (&gLispGlob.movedEidLock);
+
+    return LISP_SUCCESS;
+}
+
+tMovedEidEntry *LispGetMovedEidEntry (uint32_t eid)
+{
+    tMovedEidEntry    *pMovedEidEntry = NULL;
+    tMovedEidEntry    *pBestMovedEidEntry = NULL;
+    struct list_head  *pList = NULL;
+    uint32_t          currEntryMask = 0;
+    uint32_t          bestEntryMask = 0;
+
+    list_for_each (pList, &gLispGlob.movedEidListHead)
+    {
+        pMovedEidEntry = (tMovedEidEntry *) pList;
+        if ((eid & pMovedEidEntry->eidPrefix.mask) !=
+            (pMovedEidEntry->eidPrefix.eid))
+        {
+            continue;
+        }
+
+        if (pBestMovedEidEntry == NULL)
+        {
+            pBestMovedEidEntry = pMovedEidEntry;
+            continue;
+        }
+
+        bestEntryMask = ntohl (pBestMovedEidEntry->eidPrefix.mask);
+        currEntryMask = ntohl (pMovedEidEntry->eidPrefix.mask);
+        if (LispConvertMaskToPrefLen (currEntryMask) >
+            LispConvertMaskToPrefLen (bestEntryMask))
+        {
+            pBestMovedEidEntry = pMovedEidEntry;
+        }
+    }
+
+    return pBestMovedEidEntry;
 }
 
 uint8_t *LispConstructMapRequest (uint32_t srcEid, uint32_t srcRloc,

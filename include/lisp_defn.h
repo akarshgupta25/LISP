@@ -51,6 +51,8 @@
 
 /* Forward declaration */
 struct __tEidPrefixRlocMap;
+struct __tMobileEidEntry;
+struct __tMovedEidEntry;
 
 /* Functions defined in lisp_main.c */
 int ValidateCmdLineArg (char *argv[], int argc);
@@ -67,10 +69,13 @@ int LispGetEndSysMacAddr (uint32_t ipAddr, uint8_t eidIfNum, uint8_t *pMacAddr);
 int LispGetIfMacAddr (uint8_t eidIfNum, uint8_t *pIfMacAddr);
 struct __tEidPrefixRlocMap *LispGetEidToRlocMap (uint32_t dstEid);
 uint8_t LispConvertMaskToPrefLen (uint32_t mask);
-int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc);
+int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
+                            uint32_t recTtl);
 int LispDelRlocEidMapEntry (uint32_t eid, uint8_t prefLen);
-void *LispGetMovedEidEntry (uint32_t eid);
-void *LispGetMobileEidEntry (uint32_t eid);
+int LispAddMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum);
+struct __tMobileEidEntry *LispGetMobileEidEntry (uint32_t eid, uint8_t eidIfNum);
+struct __tMovedEidEntry *LispGetMovedEidEntry (uint32_t eid);
+int LispAddMovedEidEntry (uint32_t eid, uint8_t prefLen);
 
 /* Functions defined in lisp_itr.c */
 void *ItrTaskMain (void *args);
@@ -89,6 +94,7 @@ int LispSendMapRegister (uint32_t srcEid, uint8_t srcEidPrefLen, uint32_t rloc);
 int LispSendSolicitMapRequest (uint32_t srcEid, uint32_t dstEid,
                                struct sockaddr_in dstAddr, int dstAddrLen);
 int LispSendPktEndSys (uint8_t eidIfNum, uint8_t *pIpv4Pkt, uint16_t ipv4PktLen);
+int LispProcessMapNotify (uint8_t *pCntrlPkt, uint16_t cntrlPktLen);
 
 /* Functions defined in lisp_msmr.c */
 int LispMSMRInit (void);
@@ -100,11 +106,14 @@ int LispMSMRProcessMapRegister (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
                                 struct sockaddr_in itrAddr, int itrAddrLen);
 struct __tEidPrefixRlocMap *LispMSMRGetEidToRlocMap (uint32_t eid);
 int LispMSMRAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
-                                uint32_t recTtl, uint8_t isProxySet);
+                                uint32_t recTtl, uint8_t isProxySet,
+                                uint32_t etrAddr);
 int LispSendMapReply (uint32_t eid, uint32_t mask, uint32_t rloc, uint32_t ttl,
                       struct sockaddr_in dstAddr, int dstAddrLen);
 uint8_t *LispConstructMapReply (uint32_t eid, uint8_t prefLen, uint32_t rloc,
                                 uint32_t ttl, uint16_t *pMapRepMsgLen);
+int LispSendMapNotify (uint32_t eid, uint8_t prefLen, uint32_t rloc,
+                       uint32_t recTtl, uint32_t etrAddr);
 
 /* Debug/Output Functions */
 void PrintUsage (void);

@@ -167,6 +167,7 @@ int LispMSMRProcessMapRequest (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
         return LISP_SUCCESS;
     }
 
+    printf ("Map-Request Rx, sending Map-Reply!!\r\n");
     /* Mapping found in database, send Map-Reply */
     LispSendMapReply (pMapDbEntry->eidPrefix.eid, pMapDbEntry->eidPrefix.mask,
                       pMapDbEntry->rloc, pMapDbEntry->recTtl, itrAddr,
@@ -248,10 +249,12 @@ int LispMSMRProcessMapRegister (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
     {
         /* NOTE: Send Map-Notify message to old ETR */
         printf ("Mobile device detected!! Informing old ETR..\r\n");
+        LispSendMapNotify (eid, pRlocRec->eidPrefLen, rloc, 
+                           pCurrMapDbEntry->recTtl, pCurrMapDbEntry->etrAddr);
     }
     
     LispMSMRAddRlocEidMapEntry (eid, pRlocRec->eidPrefLen, rloc, recTtl,
-                                isProxySet);
+                                isProxySet, etrAddr.sin_addr.s_addr);
 
     if (isMapNotifySet == LISP_TRUE)
     {
@@ -340,8 +343,58 @@ uint8_t *LispConstructMapReply (uint32_t eid, uint8_t prefLen, uint32_t rloc,
     return ((uint8_t *) pMapRepMsg);
 }
 
+int LispSendMapNotify (uint32_t eid, uint8_t prefLen, uint32_t rloc,
+                       uint32_t recTtl, uint32_t etrAddr)
+{
+    struct sockaddr_in  dstAddr;
+    tMapNotifyHdr       *pMapNotifyMsg = NULL;
+    tRlocRecord         *pRlocRec = NULL;
+    tRlocLoc            *pLoc = NULL;
+    int                 mapNotifyMsgLen = 0;
+
+    mapNotifyMsgLen = sizeof (tMapNotifyHdr) + sizeof (tRlocRecord) +
+                      sizeof (tRlocLoc);
+    pMapNotifyMsg = (tMapNotifyHdr *) malloc (mapNotifyMsgLen);
+    if (pMapNotifyMsg == NULL)
+    {
+        printf ("Failed to allocate memory to Map-Notify message!!\r\n");
+        return LISP_FAILURE;
+    }
+    memset (pMapNotifyMsg, 0, mapNotifyMsgLen);
+
+    pMapNotifyMsg->type = LISP_MAP_NOTIFY_MSG;
+    pMapNotifyMsg->recordCount = 1;
+    pMapNotifyMsg->authDataLen = htons (LISP_DEF_AUTH_DATA_LEN);
+
+    pRlocRec = (tRlocRecord *)
+               (((uint8_t *) pMapNotifyMsg) + sizeof (tMapNotifyHdr));
+    
+    pRlocRec->recTtl = recTtl;
+    pRlocRec->locCount = 1;
+    pRlocRec->mapVerNum = htons (LISP_DEF_MAP_VER_NUM);
+    pRlocRec->eidPrefLen = prefLen;
+    pRlocRec->eidPrefixAfi = htons (LISP_IPV4_AFI);
+    pRlocRec->eidPrefix = eid;
+
+    pLoc = (tRlocLoc *)
+           (((uint8_t *) pRlocRec) + sizeof (tRlocRecord));
+
+    pLoc->rlocAfi = htons (LISP_IPV4_AFI);
+    pLoc->rloc = rloc;
+
+    memset (&dstAddr, 0, sizeof (dstAddr));
+    dstAddr.sin_family = AF_INET;
+    dstAddr.sin_addr.s_addr = etrAddr;
+    dstAddr.sin_port = htons (LISP_CNTRL_PKT_UDP_PORT);
+    sendto (gLispMSMRGlob.lispCntrlSock, pMapNotifyMsg, mapNotifyMsgLen, 0,
+            (struct sockaddr *) &dstAddr, sizeof (dstAddr));
+
+    return LISP_SUCCESS;
+}
+
 int LispMSMRAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
-                                uint32_t recTtl, uint8_t isProxySet)
+                                uint32_t recTtl, uint8_t isProxySet, 
+                                uint32_t etrAddr)
 {
     tEidPrefixRlocMap *pMapDbEntry = NULL;
     uint32_t          mask = 0;
@@ -368,6 +421,7 @@ int LispMSMRAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
     pMapDbEntry->rloc = rloc;
     pMapDbEntry->recTtl = recTtl;
     pMapDbEntry->isProxySet = isProxySet;
+    pMapDbEntry->etrAddr = etrAddr;
 
     list_add_head ((struct list_head *) pMapDbEntry,
                    &gLispMSMRGlob.eidRlocMapDbHead);
@@ -464,6 +518,8 @@ void DumpMSMRMapDb (void)
         addr.s_addr = pMapDbEntry->eidPrefix.mask;
         printf ("%s , ", inet_ntoa (addr));
         addr.s_addr = pMapDbEntry->rloc;
+        printf ("%s , ", inet_ntoa (addr));
+        addr.s_addr = pMapDbEntry->etrAddr;
         printf ("%s\r\n", inet_ntoa (addr));
     }
 

@@ -244,10 +244,30 @@ int LispXtrInit (void)
     /* Initialize ITR Eid Rloc map cache */
     INIT_LIST_HEAD (&gLispGlob.itrEidRlocMapCacheHead);
 
+    /* Initialize mobile Eid list */
+    INIT_LIST_HEAD (&gLispGlob.mobileEidListHead);
+
+    /* Initialize moved Eid list */
+    INIT_LIST_HEAD (&gLispGlob.movedEidListHead);
+
     /* Initialize ITR map cache lock */
     if (pthread_mutex_init (&gLispGlob.itrMapCacheLock, NULL) < 0)
     {
         printf ("Failed to create ITR map cache mutex!!\r\n");
+        return LISP_FAILURE;
+    }
+
+    /* Initialize mobile Eid list lock */
+    if (pthread_mutex_init (&gLispGlob.mobileEidLock, NULL) < 0)
+    {
+        printf ("Failed to create mobile EID mutex!!\r\n");
+        return LISP_FAILURE;
+    }
+
+    /* Initialize moved Eid list lock */
+    if (pthread_mutex_init (&gLispGlob.movedEidLock, NULL) < 0)
+    {
+        printf ("Failed to create moved EID mutex!!\r\n");
         return LISP_FAILURE;
     }
 

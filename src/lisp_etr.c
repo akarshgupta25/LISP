@@ -82,6 +82,7 @@ int LispRecvLispEncpPkt (int sockFd)
     uint8_t            lispEncpData[LISP_MTU_SIZE];
     uint8_t            eidIfNum = 0;
     uint8_t            isPktConfigEidMatch = LISP_FALSE;
+    uint8_t            isMobileEidPresent = LISP_FALSE;
     uint16_t           endSysPktLen = 0;
     uint16_t           encpPktLen = 0;
     uint32_t           dstEid = 0;
@@ -117,7 +118,9 @@ int LispRecvLispEncpPkt (int sockFd)
         return LISP_FAILURE;
     }
 
+#if 0
     DumpPacket ((char *) pEndSysPkt, endSysPktLen);
+#endif
 
     /* Check destination EID of packet:
      * 1) If matches interface EID, then check if destination EID belongs to
@@ -145,61 +148,61 @@ int LispRecvLispEncpPkt (int sockFd)
     switch (isPktConfigEidMatch)
     {
         case LISP_TRUE:
+            /* Packets destined to moved EIDs should not be processed
+             * Send SMR message to ITR informing change of mapping */
             if (LispGetMovedEidEntry (dstEid) != NULL)
             {
-                /* Send SMR message to ITR */
+                printf ("Packet Rx for moved EID, sending SMR to ITR..\r\n");
                 LispSendSolicitMapRequest (srcEid, dstEid, itrAddr, 
                                            itrAddrLen);
                 return LISP_SUCCESS;
             }
 
-            /* Update source EID to RLOC mapping in local cache */
-            pMapCacheEntry = LispGetEidToRlocMap (srcEid);
-            if (pMapCacheEntry == NULL)
-            {
-                LispAddRlocEidMapEntry (srcEid, LISP_MAX_PREF_LEN, srcRloc);
-            }   
-            else if (pMapCacheEntry->rloc != srcRloc)
-            {
-                pthread_mutex_lock (&gLispGlob.itrMapCacheLock);
-                pMapCacheEntry->rloc = srcRloc;
-                pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
-            }
-
-            DumpLocalMapCache();
-
-            /* Forward packet to appropriate end system EID */
-            LispSendPktEndSys (eidIfNum, pEndSysPkt, endSysPktLen);
             break;
 
         case LISP_FALSE:
-            if (LispGetMobileEidEntry (dstEid) == NULL)
+            /* Packets destined to only mobile EIDs should be processed
+             * Drop all other packets */
+            for (eidIfNum = 0; eidIfNum < gLispGlob.numEidIf; eidIfNum++)
             {
+                if (LispGetMobileEidEntry (dstEid, eidIfNum) != NULL)
+                {
+                    isMobileEidPresent = LISP_TRUE;
+                    break;
+                }
+            }
+            if (isMobileEidPresent != LISP_TRUE)
+            {
+                /* Mobile Eid is not connected to this ETR */
+                printf ("Packet Rx for mobile EID that does not exist, dropping pkt..\r\n");
                 return LISP_SUCCESS;
             }
 
-            /* Update source EID to RLOC mapping in local cache */
-            pMapCacheEntry = LispGetEidToRlocMap (srcEid);
-            if (pMapCacheEntry == NULL)
-            {
-                LispAddRlocEidMapEntry (srcEid, LISP_MAX_PREF_LEN, srcRloc);
-            }
-            else if (pMapCacheEntry->rloc != srcRloc)
-            {
-                pthread_mutex_lock (&gLispGlob.itrMapCacheLock);
-                pMapCacheEntry->rloc = srcRloc;
-                pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
-            }
-
-            DumpLocalMapCache();
-
-            /* Forward packet to appropriate end system EID */
-            LispSendPktEndSys (eidIfNum, pEndSysPkt, endSysPktLen);
             break;
 
         default:
             return LISP_FAILURE;
     }
+
+    /* Update source EID to RLOC mapping in local cache */
+    pMapCacheEntry = LispGetEidToRlocMap (srcEid);
+    if (pMapCacheEntry == NULL)
+    {
+        LispAddRlocEidMapEntry (srcEid, LISP_MAX_PREF_LEN, srcRloc,
+                                LISP_DEF_RECORD_TLL);
+    }   
+    else if (pMapCacheEntry->rloc != srcRloc)
+    {
+        pthread_mutex_lock (&gLispGlob.itrMapCacheLock);
+        pMapCacheEntry->rloc = srcRloc;
+        pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
+    }
+
+    DumpLocalMapCache();
+
+    printf ("Forwarding packet to end system..\r\n");
+    /* Forward packet to appropriate end system EID */
+    LispSendPktEndSys (eidIfNum, pEndSysPkt, endSysPktLen);
 
     return LISP_SUCCESS;
 }
@@ -232,6 +235,7 @@ int LispRecvLispCntrlPkt (int sockFd)
             break;
 
         case LISP_MAP_NOTIFY_MSG:
+            LispProcessMapNotify (cntrlPkt, cntrlPktLen);
             break;
 
         default:
@@ -368,5 +372,39 @@ int LispSendPktEndSys (uint8_t eidIfNum, uint8_t *pIpv4Pkt, uint16_t ipv4PktLen)
 
     free (pEndSysPkt);
     pEndSysPkt = NULL;
+    return LISP_SUCCESS;
+}
+
+int LispProcessMapNotify (uint8_t *pCntrlPkt, uint16_t cntrlPktLen)
+{
+    tMapNotifyHdr    *pMapNotifyMsg = NULL;
+    tRlocRecord      *pRlocRec = NULL;
+
+    if (pCntrlPkt == NULL)
+    {
+        printf ("[%s]: Invalid Parameter!!\r\n", __func__);
+        return LISP_FAILURE;
+    }
+
+    pMapNotifyMsg = (tMapNotifyHdr *) pCntrlPkt;
+    if (pMapNotifyMsg->recordCount == 0)
+    {
+        printf ("Record not present in Map-Notify message!!\r\n");
+        return LISP_SUCCESS;
+    }
+
+    pRlocRec = (tRlocRecord *)
+                (((uint8_t *) pMapNotifyMsg) + sizeof (tMapNotifyHdr));
+#if 0
+    if (pRlocRec->locCount == 0)
+    {
+        printf ("Loc not present in Map-Notify message!!\r\n");
+        return LISP_SUCCESS:
+    }
+#endif
+
+    /* Map-Notify is Rx when end system has moved to some other ETR */
+    LispAddMovedEidEntry (pRlocRec->eidPrefix, pRlocRec->eidPrefLen);
+
     return LISP_SUCCESS;
 }

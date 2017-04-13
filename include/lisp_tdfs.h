@@ -31,6 +31,7 @@ typedef struct __tEidPrefixRlocMap
     uint32_t         rloc;
     uint32_t         recTtl;
     uint8_t          isProxySet;
+    uint32_t         etrAddr;
 } tEidPrefixRlocMap;
 
 typedef struct
@@ -49,7 +50,11 @@ typedef struct
     pthread_t          itrTaskId;
     pthread_t          etrTaskId;
     struct list_head   itrEidRlocMapCacheHead;
+    struct list_head   mobileEidListHead;
+    struct list_head   movedEidListHead;
     pthread_mutex_t    itrMapCacheLock;
+    pthread_mutex_t    mobileEidLock;
+    pthread_mutex_t    movedEidLock;
 } tLispGlobals;
 
 typedef struct
@@ -193,9 +198,44 @@ typedef struct
 
 typedef struct
 {
+    uint8_t    rsvd1:4;
+    uint8_t    type:4;
+    uint8_t    rsvd2[2];
+    uint8_t    recordCount;
+    uint32_t   nonceHigh;
+    uint32_t   nonceLow;
+    uint16_t   keyId;
+    uint16_t   authDataLen;
+    uint32_t   authData;
+    /* Record starts here */
+} tMapNotifyHdr;
+
+typedef struct __tMobileEidEntry
+{
     struct list_head list;
-    uint32_t         eid;
-} tEndSysMovedEid;
+    tEidPrefix       eidPrefix;
+    uint32_t         rloc;
+    uint8_t          eidIfNum;
+} tMobileEidEntry;
+
+typedef struct __tMovedEidEntry
+{
+    struct list_head list;
+    tEidPrefix       eidPrefix;
+} tMovedEidEntry;
+
+typedef struct
+{
+    uint16_t    hwType;
+    uint16_t    protType;
+    uint8_t     hwAddrLen;
+    uint8_t     protAddrLen;
+    uint16_t    opCode;
+    uint8_t     srcHwAddr[LISP_MAC_ADDR_LEN];
+    uint8_t     srcIpAddr[4];
+    uint8_t     dstHwAddr[LISP_MAC_ADDR_LEN];
+    uint8_t     dstIpAddr[4];
+} tArpHdr;
 
 enum
 {
