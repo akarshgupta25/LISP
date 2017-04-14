@@ -250,6 +250,9 @@ int LispXtrInit (void)
     /* Initialize moved Eid list */
     INIT_LIST_HEAD (&gLispGlob.movedEidListHead);
 
+    /* Initialize end system ARP list */
+    INIT_LIST_HEAD (&gLispGlob.arpListHead);
+
     /* Initialize ITR map cache lock */
     if (pthread_mutex_init (&gLispGlob.itrMapCacheLock, NULL) < 0)
     {
@@ -271,7 +274,12 @@ int LispXtrInit (void)
         return LISP_FAILURE;
     }
 
-    DumpSockFd();
+    /* Initialize end system ARP list lock */
+    if (pthread_mutex_init (&gLispGlob.arpListLock, NULL) < 0)
+    {
+        printf ("Failed to create ARP list mutex!!\r\n");
+        return LISP_FAILURE;
+    }
 
     return LISP_SUCCESS;
 }

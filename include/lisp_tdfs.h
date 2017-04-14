@@ -52,9 +52,11 @@ typedef struct
     struct list_head   itrEidRlocMapCacheHead;
     struct list_head   mobileEidListHead;
     struct list_head   movedEidListHead;
+    struct list_head   arpListHead;
     pthread_mutex_t    itrMapCacheLock;
     pthread_mutex_t    mobileEidLock;
     pthread_mutex_t    movedEidLock;
+    pthread_mutex_t    arpListLock;
 } tLispGlobals;
 
 typedef struct
@@ -216,6 +218,7 @@ typedef struct __tMobileEidEntry
     tEidPrefix       eidPrefix;
     uint32_t         rloc;
     uint8_t          eidIfNum;
+    uint8_t          srcMacAddr[LISP_MAC_ADDR_LEN];
 } tMobileEidEntry;
 
 typedef struct __tMovedEidEntry
@@ -236,6 +239,13 @@ typedef struct
     uint8_t     dstHwAddr[LISP_MAC_ADDR_LEN];
     uint8_t     dstIpAddr[4];
 } tArpHdr;
+
+typedef struct __tArpEntry
+{
+    struct list_head  list;
+    uint32_t          ipAddr;
+    uint8_t           macAddr[LISP_MAC_ADDR_LEN];
+} tArpEntry;
 
 enum
 {
@@ -343,5 +353,8 @@ list_del_init (struct list_head *entry)
 uint8_t *LispConstructMapRequest (uint32_t srcEid, uint32_t srcRloc,
                                   uint32_t dstEid, uint8_t dstEidPrefLen,
                                   tMapReqFlags flags, uint16_t *pMsgLen);
+
+int LispItrProcessEndSysArpPkt (tArpHdr *pArpHdr, uint8_t eidIfNum,
+                                uint8_t *pSrcMacAddr);
 
 #endif /* __LISP_TDFS_H__ */

@@ -248,13 +248,6 @@ tEidPrefixRlocMap *LispGetEidToRlocMap (uint32_t eid)
         {
             pBestCacheEntry = pMapCacheEntry;
         }
-#if 0
-        if (LispConvertMaskToPrefLen (pMapCacheEntry->eidPrefix.mask) >
-            LispConvertMaskToPrefLen (pBestCacheEntry->eidPrefix.mask))
-        {
-            pBestCacheEntry = pMapCacheEntry;
-        }
-#endif
     }
 
     pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
@@ -292,6 +285,8 @@ int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
     list_add_head ((struct list_head *) pMapCacheEntry,
                    &gLispGlob.itrEidRlocMapCacheHead);
     pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
+
+    DumpLocalMapCache();
 
     return LISP_SUCCESS;
 }
@@ -344,7 +339,8 @@ uint8_t LispConvertMaskToPrefLen (uint32_t mask)
     return (LISP_MAX_PREF_LEN - bit);
 }
 
-int LispAddMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum)
+int LispAddMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum,
+                           uint8_t *pSrcMacAddr)
 {
     tMobileEidEntry   *pMobileEidEntry = NULL;
     uint32_t          mask = 0;
@@ -370,6 +366,7 @@ int LispAddMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum)
     pMobileEidEntry->eidPrefix.mask = mask;
     pMobileEidEntry->rloc = gLispGlob.eidRlocMap[eidIfNum].rloc;
     pMobileEidEntry->eidIfNum = eidIfNum;
+    memcpy (pMobileEidEntry->srcMacAddr, pSrcMacAddr, LISP_MAC_ADDR_LEN);
 
     pthread_mutex_lock (&gLispGlob.mobileEidLock);
     list_add_head ((struct list_head *) pMobileEidEntry,
@@ -543,92 +540,69 @@ uint8_t *LispConstructMapRequest (uint32_t srcEid, uint32_t srcRloc,
     return ((uint8_t *) pMapReqMsg);
 }
 
-#if 0
-void TestDllAddDel (void)
+int LispItrUpdateEndSysArpEntry (uint32_t ipAddr, uint8_t *pMacAddr)
 {
-    struct list_head head;
-    struct list_head *list = NULL;
-    tEndSysMovedEid  *entry = NULL;
+    tArpEntry   *pArpEntry = NULL;
 
-    INIT_LIST_HEAD (&head);
-
-    entry = (tEndSysMovedEid  *) malloc (sizeof (tEndSysMovedEid));
-    if (entry == NULL)
+    if (pMacAddr == NULL)
     {
-        printf ("[%s]: Malloc failed!!\r\n", __func__);
-        return;
-    }
-    memset (entry, 0, sizeof (tEndSysMovedEid));
-    entry->eid = 10;
-    list_add_head (&(entry->list), &head);
-
-    entry = (tEndSysMovedEid  *) malloc (sizeof (tEndSysMovedEid));
-    if (entry == NULL)
-    {
-        printf ("[%s]: Malloc failed!!\r\n", __func__);
-        return;
-    }
-    memset (entry, 0, sizeof (tEndSysMovedEid));
-    entry->eid = 20;
-    list_add_head (&(entry->list), &head);
-
-    entry = (tEndSysMovedEid  *) malloc (sizeof (tEndSysMovedEid));
-    if (entry == NULL)
-    {
-        printf ("[%s]: Malloc failed!!\r\n", __func__);
-        return;
-    }
-    memset (entry, 0, sizeof (tEndSysMovedEid));
-    entry->eid = 30;
-    list_add_head (&(entry->list), &head);
-
-    entry = (tEndSysMovedEid  *) malloc (sizeof (tEndSysMovedEid));
-    if (entry == NULL)
-    {
-        printf ("[%s]: Malloc failed!!\r\n", __func__);
-        return;
-    }
-    memset (entry, 0, sizeof (tEndSysMovedEid));
-    entry->eid = 40;
-    list_add_head (&(entry->list), &head);
-
-    list_for_each (list, &head)
-    {
-        entry = (tEndSysMovedEid *)list;
-        printf ("eid:%u\r\n", entry->eid);
+        printf ("[%s]: Invalid Parameter!!\r\n", __func__);
+        return LISP_FAILURE;
     }
 
-    list_for_each (list, &head)
+    pArpEntry = LispGetEndSysArpEntry (ipAddr);
+    if (pArpEntry == NULL)
     {
-        list_del_init (list);
-        free (list);
-        list = NULL;
-        break;
+        pArpEntry = (tArpEntry *) malloc (sizeof (tArpEntry));
+        if (pArpEntry == NULL)
+        {
+            printf ("Failed to allocate memory to ARP entry!!\r\n");
+            return LISP_FAILURE;
+        }
+        memset (pArpEntry, 0, sizeof (tArpEntry));
+
+        pArpEntry->ipAddr = ipAddr;
+        memcpy (pArpEntry->macAddr, pMacAddr, LISP_MAC_ADDR_LEN);
+
+        pthread_mutex_lock (&gLispGlob.arpListLock);
+        list_add_tail ((struct list_head *) pArpEntry,
+                       &gLispGlob.arpListHead);
+        pthread_mutex_unlock (&gLispGlob.arpListLock);
+
+        DumpItrArpList();
+    }
+    else if (memcmp (pArpEntry->macAddr, pMacAddr, LISP_MAC_ADDR_LEN))
+    {
+        pthread_mutex_lock (&gLispGlob.arpListLock);
+        memcpy (pArpEntry->macAddr, pMacAddr, LISP_MAC_ADDR_LEN);
+        pthread_mutex_unlock (&gLispGlob.arpListLock);
+
+        DumpItrArpList();
     }
 
-    list_for_each (list, &head)
-    {
-        entry = (tEndSysMovedEid *)list;
-        printf ("eid:%u\r\n", entry->eid);
-    }
-
-    list_for_each (list, &head)
-    {
-        list_del_init (list);
-        free (list);
-        list = NULL;
-        break;
-    }
-
-    list_for_each (list, &head)
-    {
-        entry = (tEndSysMovedEid *)list;
-        printf ("eid:%u\r\n", entry->eid);
-    }
-
-    return;
+    return LISP_SUCCESS;
 }
-#endif
+
+tArpEntry *LispGetEndSysArpEntry (uint32_t ipAddr)
+{
+    tArpEntry        *pArpEntry = NULL;
+    struct list_head *pList = NULL;
+
+    pthread_mutex_lock (&gLispGlob.arpListLock);
+
+    list_for_each (pList, &gLispGlob.arpListHead)
+    {
+        pArpEntry = (tArpEntry *) pList;
+        if (pArpEntry->ipAddr == ipAddr)
+        {
+            pthread_mutex_unlock (&gLispGlob.arpListLock);
+            return pArpEntry;
+        }
+    }
+
+    pthread_mutex_unlock (&gLispGlob.arpListLock);
+    return NULL;
+}
 
 /* Debug functions */
 void DumpPacket (char *au1Packet, int len)
@@ -754,6 +728,139 @@ void DumpLocalMapCache (void)
         addr.s_addr = pMapCacheEntry->rloc;
         printf ("%s\r\n", inet_ntoa (addr));
     }
+    printf ("\n");
 
+    return;
+}
+
+void DumpItrArpList (void)
+{
+    tArpEntry        *pArpEntry = NULL;
+    struct list_head *pList = NULL;
+    char             buf[LISP_MAX_IP_STR_LEN];
+    int              index = 0;
+
+    printf ("ITR ARP List:\r\n");
+    list_for_each (pList, &gLispGlob.arpListHead)
+    {
+        pArpEntry = (tArpEntry *) pList;
+        printf ("%s , ", 
+                inet_ntop (AF_INET, &pArpEntry->ipAddr, buf, sizeof (buf)));
+        for (index = 0; index < LISP_MAC_ADDR_LEN; index++)
+        {
+            printf ("%x:", pArpEntry->macAddr[index]);
+        }
+        printf ("\n");
+    }
+    printf ("\n");
+
+    return;
+}
+
+void DumpItrRxEndSysPkt (uint32_t srcEid, uint32_t dstEid)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+    
+    printf ("ITR: Packet Rx from ");
+    printf ("srcEid:%s, ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
+    printf ("dstEid:%s\r\n", inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayItrMapCacheMissLog (uint32_t eid)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ITR: Map cache miss!! Sending Map-Request for ");
+    printf ("EID:%s..\r\n\n", inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayItrNegMapLog (uint32_t eid)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ITR: Negative mapping for eid:%s!! Dropping packet..\r\n",
+            inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayItrTxLispEncpPktLog (uint32_t rloc)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ITR: Forwarding LISP encapsulated packet to RLOC:%s..\r\n\n",
+            inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayItrMobileEidDiscLog (uint32_t eid)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ITR: Mobile EID:%s discovered!! Sending Map-Register..\r\n",
+            inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayItrAddMapCacheLog (uint32_t eid, uint8_t prefLen, uint32_t rloc)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ITR: Received Map-Reply from Map-Server/Map-Resolver!! Adding "
+            "mapping entry for ");
+    printf ("EID:%s/%d, ", inet_ntop (AF_INET, &eid, buf, sizeof (buf)), 
+            prefLen);
+    printf ("RLOC:%s\r\n", inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayItrSMReqLog (uint32_t eid)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ITR: Solicit Map-Request received!! Sending Map-Request for ");
+    printf ("EID:%s..\r\n", inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayEtrMovedEidLog (uint32_t eid, uint32_t rloc)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ETR: Packet received for moved EID:%s!! ",
+            inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    printf ("Sending Solicit-Map-Request to ITR RLOC:%s..\r\n", 
+            inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayEtrEndSysEidNotPresentLog (uint32_t eid)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ETR: Packet received for EID:%s that is not present in "
+            "LISP site!! Dropping packet..\r\n",
+            inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayEtrTxEndSysPktLog (uint32_t srcEid, uint32_t dstEid)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+    
+    printf ("ETR: Forwarding end system packet from ");
+    printf ("srcEid:%s, to ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
+    printf ("dstEid:%s\r\n\n", inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayEtrMapNotifyRxLog (uint32_t eid, uint8_t prefLen)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ETR: Map-Notify received for EID-prefix:%s/%d!! ",
+            inet_ntop (AF_INET, &eid, buf, sizeof (buf)), prefLen);
+    printf ("Adding this to moved EID list..\r\n");
     return;
 }

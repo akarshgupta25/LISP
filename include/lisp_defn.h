@@ -49,10 +49,13 @@
 #define LISP_DEF_RECORD_TLL    0
 #define LISP_DEF_MAP_VER_NUM   1
 
+#define LISP_MAX_IP_STR_LEN    16
+
 /* Forward declaration */
 struct __tEidPrefixRlocMap;
 struct __tMobileEidEntry;
 struct __tMovedEidEntry;
+struct __tArpEntry;
 
 /* Functions defined in lisp_main.c */
 int ValidateCmdLineArg (char *argv[], int argc);
@@ -72,10 +75,13 @@ uint8_t LispConvertMaskToPrefLen (uint32_t mask);
 int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
                             uint32_t recTtl);
 int LispDelRlocEidMapEntry (uint32_t eid, uint8_t prefLen);
-int LispAddMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum);
+int LispAddMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum,
+                           uint8_t *pSrcMacAddr);
 struct __tMobileEidEntry *LispGetMobileEidEntry (uint32_t eid, uint8_t eidIfNum);
 struct __tMovedEidEntry *LispGetMovedEidEntry (uint32_t eid);
 int LispAddMovedEidEntry (uint32_t eid, uint8_t prefLen);
+struct __tArpEntry *LispGetEndSysArpEntry (uint32_t ipAddr);
+int LispItrUpdateEndSysArpEntry (uint32_t ipAddr, uint8_t *pMacAddr);
 
 /* Functions defined in lisp_itr.c */
 void *ItrTaskMain (void *args);
@@ -108,6 +114,7 @@ struct __tEidPrefixRlocMap *LispMSMRGetEidToRlocMap (uint32_t eid);
 int LispMSMRAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
                                 uint32_t recTtl, uint8_t isProxySet,
                                 uint32_t etrAddr);
+int LispMSMRDelRlocEidMapEntry (uint32_t eid, uint8_t prefLen);
 int LispSendMapReply (uint32_t eid, uint32_t mask, uint32_t rloc, uint32_t ttl,
                       struct sockaddr_in dstAddr, int dstAddrLen);
 uint8_t *LispConstructMapReply (uint32_t eid, uint8_t prefLen, uint32_t rloc,
@@ -121,6 +128,23 @@ void DumpCmdLineArg (void);
 void DumpPacket (char *au1Packet, int len);
 void DumpSockFd (void);
 void DumpLocalMapCache (void);
+void DumpItrArpList (void);
 void DumpMSMRMapDb (void);
+void DumpItrRxEndSysPkt (uint32_t srcEid, uint32_t dstEid);
+void DisplayItrMapCacheMissLog (uint32_t eid);
+void DisplayItrNegMapLog (uint32_t eid);
+void DisplayItrTxLispEncpPktLog (uint32_t rloc);
+void DisplayItrMobileEidDiscLog (uint32_t eid);
+void DisplayItrAddMapCacheLog (uint32_t eid, uint8_t prefLen, uint32_t rloc);
+void DisplayItrSMReqLog (uint32_t eid);
+void DisplayEtrMovedEidLog (uint32_t eid, uint32_t rloc);
+void DisplayEtrEndSysEidNotPresentLog (uint32_t eid);
+void DisplayEtrTxEndSysPktLog (uint32_t srcEid, uint32_t dstEid);
+void DisplayEtrMapNotifyRxLog (uint32_t eid, uint8_t prefLen);
+void DisplayMapReqMapRepLog (uint32_t srcEid, uint8_t srcPrefLen,
+                             uint32_t dstEid, uint32_t dstEidMask,
+                             uint32_t rloc);
+void DisplayMobileEidMapNotifyLog (uint32_t eid, uint8_t prefLen,
+                                   uint32_t rloc);
 
 #endif /* __LISP_DEFN_H__ */

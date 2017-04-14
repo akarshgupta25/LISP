@@ -152,7 +152,7 @@ int LispRecvLispEncpPkt (int sockFd)
              * Send SMR message to ITR informing change of mapping */
             if (LispGetMovedEidEntry (dstEid) != NULL)
             {
-                printf ("Packet Rx for moved EID, sending SMR to ITR..\r\n");
+                DisplayEtrMovedEidLog (dstEid, itrAddr.sin_addr.s_addr);
                 LispSendSolicitMapRequest (srcEid, dstEid, itrAddr, 
                                            itrAddrLen);
                 return LISP_SUCCESS;
@@ -173,8 +173,8 @@ int LispRecvLispEncpPkt (int sockFd)
             }
             if (isMobileEidPresent != LISP_TRUE)
             {
-                /* Mobile Eid is not connected to this ETR */
-                printf ("Packet Rx for mobile EID that does not exist, dropping pkt..\r\n");
+                /* Eid is not connected to this ETR */
+                DisplayEtrEndSysEidNotPresentLog (dstEid);
                 return LISP_SUCCESS;
             }
 
@@ -196,11 +196,11 @@ int LispRecvLispEncpPkt (int sockFd)
         pthread_mutex_lock (&gLispGlob.itrMapCacheLock);
         pMapCacheEntry->rloc = srcRloc;
         pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
+        DumpLocalMapCache();
     }
 
-    DumpLocalMapCache();
+    DisplayEtrTxEndSysPktLog (srcEid, dstEid);
 
-    printf ("Forwarding packet to end system..\r\n");
     /* Forward packet to appropriate end system EID */
     LispSendPktEndSys (eidIfNum, pEndSysPkt, endSysPktLen);
 
@@ -332,11 +332,15 @@ int LispSendSolicitMapRequest (uint32_t srcEid, uint32_t dstEid,
 
 int LispSendPktEndSys (uint8_t eidIfNum, uint8_t *pIpv4Pkt, uint16_t ipv4PktLen)
 {
-    uint8_t    ifMacAddr[LISP_MAC_ADDR_LEN];
-    uint8_t    endSysMacAddr[LISP_MAC_ADDR_LEN];
-    uint8_t    *pEndSysPkt = NULL;
-    uint16_t   endSysPktLen = 0;
-    uint16_t   ethType = 0;
+#if 0
+    tMobileEidEntry  *pMobileEidEntry = NULL;
+#endif
+    tArpEntry        *pArpEntry = NULL;
+    uint8_t          ifMacAddr[LISP_MAC_ADDR_LEN];
+    uint8_t          endSysMacAddr[LISP_MAC_ADDR_LEN];
+    uint8_t          *pEndSysPkt = NULL;
+    uint16_t         endSysPktLen = 0;
+    uint16_t         ethType = 0;
 
     endSysPktLen = ipv4PktLen + LISP_L2_HDR_LEN;
     pEndSysPkt = (uint8_t *) malloc (endSysPktLen);
@@ -346,19 +350,45 @@ int LispSendPktEndSys (uint8_t eidIfNum, uint8_t *pIpv4Pkt, uint16_t ipv4PktLen)
         return LISP_FAILURE;
     }
     memset (pEndSysPkt, 0, sizeof (endSysPktLen));
-
     memset (endSysMacAddr, 0, sizeof (endSysMacAddr));
-    if (LispGetEndSysMacAddr (((tIpv4Hdr *) pIpv4Pkt)->dstIpAddr, eidIfNum,
-                              endSysMacAddr) != LISP_SUCCESS)
+    memset (ifMacAddr, 0, sizeof (ifMacAddr));
+
+#if 0
+    pMobileEidEntry = LispGetMobileEidEntry (((tIpv4Hdr *) pIpv4Pkt)->dstIpAddr, 
+                                             eidIfNum);
+    if (pMobileEidEntry != NULL)
     {
-        printf ("Failed to fetch end system MAC address!!\r\n");
+        /* MAC address of mobile device is stored in mobile device list */
+        memcpy (endSysMacAddr, pMobileEidEntry->srcMacAddr, LISP_MAC_ADDR_LEN);
+    }
+    else
+    {
+        /* MAC address of non-mobile device is stored in ARP table */
+        if (LispGetEndSysMacAddr (((tIpv4Hdr *) pIpv4Pkt)->dstIpAddr, eidIfNum,
+                                  endSysMacAddr) != LISP_SUCCESS)
+        {
+            printf ("Failed to fetch end system MAC address!!\r\n");
+            free (pEndSysPkt);
+            pEndSysPkt = NULL;
+            return LISP_FAILURE;
+        }
+    }
+#endif
+    pArpEntry = LispGetEndSysArpEntry (((tIpv4Hdr *) pIpv4Pkt)->dstIpAddr);
+    if (pArpEntry == NULL)
+    {
+        printf ("Failed to fetch ARP entry for end system!!\r\n");
+        free (pEndSysPkt);
+        pEndSysPkt = NULL;
         return LISP_FAILURE;
     }
+    memcpy (endSysMacAddr, pArpEntry->macAddr, LISP_MAC_ADDR_LEN);
 
-    memset (ifMacAddr, 0, sizeof (ifMacAddr));
     if (LispGetIfMacAddr (eidIfNum, ifMacAddr) != LISP_SUCCESS)
     {
         printf ("Failed to fetch interface MAC address!!\r\n");
+        free (pEndSysPkt);
+        pEndSysPkt = NULL;
         return LISP_FAILURE;
     }
 
@@ -402,6 +432,8 @@ int LispProcessMapNotify (uint8_t *pCntrlPkt, uint16_t cntrlPktLen)
         return LISP_SUCCESS:
     }
 #endif
+
+    DisplayEtrMapNotifyRxLog (pRlocRec->eidPrefix, pRlocRec->eidPrefLen);
 
     /* Map-Notify is Rx when end system has moved to some other ETR */
     LispAddMovedEidEntry (pRlocRec->eidPrefix, pRlocRec->eidPrefLen);

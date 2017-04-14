@@ -167,7 +167,11 @@ int LispMSMRProcessMapRequest (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
         return LISP_SUCCESS;
     }
 
-    printf ("Map-Request Rx, sending Map-Reply!!\r\n");
+    DisplayMapReqMapRepLog (dstEid, pMapReqRec->dstEidPrefLen,
+                            pMapDbEntry->eidPrefix.eid, 
+                            pMapDbEntry->eidPrefix.mask,
+                            pMapDbEntry->rloc);
+
     /* Mapping found in database, send Map-Reply */
     LispSendMapReply (pMapDbEntry->eidPrefix.eid, pMapDbEntry->eidPrefix.mask,
                       pMapDbEntry->rloc, pMapDbEntry->recTtl, itrAddr,
@@ -247,22 +251,29 @@ int LispMSMRProcessMapRegister (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
     pCurrMapDbEntry = LispMSMRGetEidToRlocMap (eid);
     if ((pCurrMapDbEntry != NULL) && (pCurrMapDbEntry->rloc != rloc))
     {
-        /* NOTE: Send Map-Notify message to old ETR */
-        printf ("Mobile device detected!! Informing old ETR..\r\n");
+        DisplayMobileEidMapNotifyLog (eid, pRlocRec->eidPrefLen,
+                                      pCurrMapDbEntry->etrAddr);
         LispSendMapNotify (eid, pRlocRec->eidPrefLen, rloc, 
                            pCurrMapDbEntry->recTtl, pCurrMapDbEntry->etrAddr);
+        LispMSMRDelRlocEidMapEntry (eid, pRlocRec->eidPrefLen);
     }
     
-    LispMSMRAddRlocEidMapEntry (eid, pRlocRec->eidPrefLen, rloc, recTtl,
-                                isProxySet, etrAddr.sin_addr.s_addr);
+    /* Add entry only if addition of entry does not create overlapping
+     * EID-prefix to RLOC mapping. This is the case when a mobile
+     * device comes back to its original LISP site. In such a case,
+     * no need to add a separate mapping for the device */
+    pCurrMapDbEntry = LispMSMRGetEidToRlocMap (eid);
+    if ((pCurrMapDbEntry == NULL) || (pCurrMapDbEntry->rloc != rloc))
+    {
+        LispMSMRAddRlocEidMapEntry (eid, pRlocRec->eidPrefLen, rloc, recTtl,
+                                    isProxySet, etrAddr.sin_addr.s_addr);
+    }
 
     if (isMapNotifySet == LISP_TRUE)
     {
         /* NOTE: Send Map-Notify to ETR */
     }
    
-    DumpMSMRMapDb();
-
     return LISP_SUCCESS;
 }
 
@@ -426,6 +437,41 @@ int LispMSMRAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
     list_add_head ((struct list_head *) pMapDbEntry,
                    &gLispMSMRGlob.eidRlocMapDbHead);
 
+    DumpMSMRMapDb();
+
+    return LISP_SUCCESS;
+}
+
+int LispMSMRDelRlocEidMapEntry (uint32_t eid, uint8_t prefLen)
+{
+    tEidPrefixRlocMap *pMapDbEntry = NULL;
+    struct list_head  *pList = NULL;
+    uint32_t          mask = 0;
+
+    if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
+    {
+        printf ("[%s]: Invalid mask!!\r\n", __func__);
+        return LISP_FAILURE;
+    }
+    mask = htonl (mask);
+
+    list_for_each (pList, &gLispMSMRGlob.eidRlocMapDbHead)
+    {
+        pMapDbEntry = (tEidPrefixRlocMap *) pList;
+        if ((pMapDbEntry->eidPrefix.eid != (eid & mask)) ||
+            (pMapDbEntry->eidPrefix.mask != mask))
+        {
+            continue;
+        }        
+
+        list_del_init ((struct list_head *) pMapDbEntry);
+        free (pMapDbEntry);
+        pMapDbEntry = NULL;
+        break;
+    }
+
+    DumpMSMRMapDb();
+
     return LISP_SUCCESS;
 }
 
@@ -522,6 +568,37 @@ void DumpMSMRMapDb (void)
         addr.s_addr = pMapDbEntry->etrAddr;
         printf ("%s\r\n", inet_ntoa (addr));
     }
+    printf ("\n");
 
+    return;
+}
+
+void DisplayMapReqMapRepLog (uint32_t srcEid, uint8_t srcPrefLen, 
+                             uint32_t dstEid, uint32_t dstEidMask, 
+                             uint32_t rloc)
+{
+    char     buf[LISP_MAX_IP_STR_LEN];
+    uint8_t  dstPrefLen = 0;
+
+    dstEidMask = ntohl (dstEidMask);
+    dstPrefLen = LispConvertMaskToPrefLen (dstEidMask);
+
+    printf ("Map-Request received for EID:%s/%d\r\n",
+            inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)), srcPrefLen);
+    printf ("Sending Map-Reply with EID:%s/%d, ",
+            inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)), dstPrefLen);
+    printf ("RLOC:%s..\r\n\n", inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
+    return;
+}
+
+void DisplayMobileEidMapNotifyLog (uint32_t eid, uint8_t prefLen, 
+                                   uint32_t rloc)
+{
+    char     buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("Mobile EID:%s/%d detected!!\r\n",
+            inet_ntop (AF_INET, &eid, buf, sizeof (buf)), prefLen);
+    printf ("Informing old ETR RLOC:%s..\r\n\n", 
+             inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
     return;
 }
