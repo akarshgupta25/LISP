@@ -583,11 +583,11 @@ void DisplayMapReqMapRepLog (uint32_t srcEid, uint8_t srcPrefLen,
     dstEidMask = ntohl (dstEidMask);
     dstPrefLen = LispConvertMaskToPrefLen (dstEidMask);
 
-    printf ("Map-Request received for EID:%s/%d\r\n",
+    printf ("Map-Request received for EID %s/%d\r\n",
             inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)), srcPrefLen);
-    printf ("Sending Map-Reply with EID:%s/%d, ",
+    printf ("Sending Map-Reply with EID %s/%d, ",
             inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)), dstPrefLen);
-    printf ("RLOC:%s..\r\n\n", inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
+    printf ("RLOC %s..\r\n\n", inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
     return;
 }
 
@@ -596,9 +596,9 @@ void DisplayMobileEidMapNotifyLog (uint32_t eid, uint8_t prefLen,
 {
     char     buf[LISP_MAX_IP_STR_LEN];
 
-    printf ("Mobile EID:%s/%d detected!!\r\n",
+    printf ("Mobile EID %s/%d detected!!\r\n",
             inet_ntop (AF_INET, &eid, buf, sizeof (buf)), prefLen);
-    printf ("Informing old ETR RLOC:%s..\r\n\n", 
+    printf ("Informing old ETR RLOC %s..\r\n\n", 
              inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
     return;
 }

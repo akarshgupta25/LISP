@@ -299,6 +299,7 @@ int LispDelRlocEidMapEntry (uint32_t eid, uint8_t prefLen)
 
     if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
     {
+        printf ("[%s]: Invalid prefix length!!\r\n", __func__);
         return LISP_FAILURE;
     }
     mask = htonl (mask);
@@ -318,6 +319,7 @@ int LispDelRlocEidMapEntry (uint32_t eid, uint8_t prefLen)
         list_del_init ((struct list_head *) pMapCacheEntry);
         free (pMapCacheEntry);
         pMapCacheEntry = NULL;
+        break;
     }
 
     pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
@@ -355,7 +357,7 @@ int LispAddMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum,
 
     if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
     {
-        printf ("[%s]: Invalid prefix mask!!\r\n", __func__);
+        printf ("[%s]: Invalid prefix length!!\r\n", __func__);
         free (pMobileEidEntry);
         pMobileEidEntry = NULL;
         return LISP_FAILURE;
@@ -419,6 +421,45 @@ tMobileEidEntry *LispGetMobileEidEntry (uint32_t eid, uint8_t eidIfNum)
     return pBestMobileEidEntry;
 }
 
+int LispDelMobileEidEntry (uint32_t eid, uint8_t prefLen, uint8_t eidIfNum)
+{
+    tMobileEidEntry   *pMobileEidEntry = NULL;
+    struct list_head  *pList = NULL;
+    uint32_t          mask = 0;
+
+    if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
+    {
+        printf ("[%s]: Invalid prefix length!!\r\n", __func__);
+        return LISP_FAILURE;
+    }
+    mask = htonl (mask);
+
+    pthread_mutex_lock (&gLispGlob.mobileEidLock);
+
+    list_for_each (pList, &gLispGlob.mobileEidListHead)
+    {
+        pMobileEidEntry = (tMobileEidEntry *) pList;
+
+        if (pMobileEidEntry->eidIfNum != eidIfNum)
+        {
+            continue;
+        }
+        if ((pMobileEidEntry->eidPrefix.eid != (eid & mask)) ||
+            (pMobileEidEntry->eidPrefix.mask != mask))
+        {
+            continue;
+        }
+
+        list_del_init ((struct list_head *) pMobileEidEntry);
+        free (pMobileEidEntry);
+        pMobileEidEntry = NULL;
+        break;
+    }
+
+    pthread_mutex_unlock (&gLispGlob.mobileEidLock);
+    return LISP_SUCCESS;
+}
+
 int LispAddMovedEidEntry (uint32_t eid, uint8_t prefLen)
 {
     tMovedEidEntry   *pMovedEidEntry = NULL;
@@ -426,7 +467,7 @@ int LispAddMovedEidEntry (uint32_t eid, uint8_t prefLen)
 
     if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
     {
-        printf ("[%s]: Invalid Mask!!\r\n", __func__);
+        printf ("[%s]: Invalid prefix length!!\r\n", __func__);
         return LISP_FAILURE;
     }
     mask = htonl (mask);
@@ -458,6 +499,8 @@ tMovedEidEntry *LispGetMovedEidEntry (uint32_t eid)
     uint32_t          currEntryMask = 0;
     uint32_t          bestEntryMask = 0;
 
+    pthread_mutex_lock (&gLispGlob.movedEidLock);
+
     list_for_each (pList, &gLispGlob.movedEidListHead)
     {
         pMovedEidEntry = (tMovedEidEntry *) pList;
@@ -482,7 +525,42 @@ tMovedEidEntry *LispGetMovedEidEntry (uint32_t eid)
         }
     }
 
+    pthread_mutex_unlock (&gLispGlob.movedEidLock);
     return pBestMovedEidEntry;
+}
+
+int LispDelMovedEidEntry (uint32_t eid, uint8_t prefLen)
+{
+    tMovedEidEntry    *pMovedEidEntry = NULL;
+    struct list_head  *pList = NULL;
+    uint32_t          mask = 0;
+
+    if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
+    {
+        printf ("[%s]: Invalid prefix length!!\r\n", __func__);
+        return LISP_FAILURE;
+    }
+    mask = htonl (mask);
+
+    pthread_mutex_lock (&gLispGlob.movedEidLock);
+
+    list_for_each (pList, &gLispGlob.movedEidListHead)
+    {
+        pMovedEidEntry = (tMovedEidEntry *) pList;
+        if ((pMovedEidEntry->eidPrefix.eid != (eid & mask)) ||
+            (pMovedEidEntry->eidPrefix.mask != mask))
+        {
+            continue;
+        }
+
+        list_del_init ((struct list_head *) pMovedEidEntry);
+        free (pMovedEidEntry);
+        pMovedEidEntry = NULL;
+        break;
+    }
+
+    pthread_mutex_unlock (&gLispGlob.movedEidLock);
+    return LISP_SUCCESS;
 }
 
 uint8_t *LispConstructMapRequest (uint32_t srcEid, uint32_t srcRloc,
@@ -733,6 +811,46 @@ void DumpLocalMapCache (void)
     return;
 }
 
+void DumpMobileEidList (void)
+{
+    struct list_head   *pList = NULL;
+    tMobileEidEntry    *pMobileEidEntry = NULL;
+    struct in_addr     addr;
+
+    printf ("Mobile EID List:\r\n");
+    list_for_each (pList, &gLispGlob.mobileEidListHead)
+    {
+        pMobileEidEntry = (tMobileEidEntry *) pList;
+        addr.s_addr = pMobileEidEntry->eidPrefix.eid;
+        printf ("[]:%s / ", inet_ntoa (addr));
+        addr.s_addr = pMobileEidEntry->eidPrefix.mask;
+        printf ("%s\r\n", inet_ntoa (addr));
+    }
+    printf ("\n");
+
+    return;
+}
+
+void DumpMovedEidList (void)
+{
+    struct list_head  *pList = NULL;
+    tMovedEidEntry    *pMovedEidEntry = NULL;
+    struct in_addr     addr;
+
+    printf ("Moved EID List:\r\n");
+    list_for_each (pList, &gLispGlob.movedEidListHead)
+    {
+        pMovedEidEntry = (tMovedEidEntry *) pList;
+        addr.s_addr = pMovedEidEntry->eidPrefix.eid;
+        printf ("[]:%s / ", inet_ntoa (addr));
+        addr.s_addr = pMovedEidEntry->eidPrefix.mask;
+        printf ("%s\r\n", inet_ntoa (addr));
+    }
+    printf ("\n");
+
+    return;
+}
+
 void DumpItrArpList (void)
 {
     tArpEntry        *pArpEntry = NULL;
@@ -762,8 +880,8 @@ void DumpItrRxEndSysPkt (uint32_t srcEid, uint32_t dstEid)
     char  buf[LISP_MAX_IP_STR_LEN];
     
     printf ("ITR: Packet Rx from ");
-    printf ("srcEid:%s, ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
-    printf ("dstEid:%s\r\n", inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)));
+    printf ("%s, to ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
+    printf ("%s\r\n", inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)));
     return;
 }
 
@@ -772,7 +890,7 @@ void DisplayItrMapCacheMissLog (uint32_t eid)
     char  buf[LISP_MAX_IP_STR_LEN];
 
     printf ("ITR: Map cache miss!! Sending Map-Request for ");
-    printf ("EID:%s..\r\n\n", inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    printf ("EID %s..\r\n\n", inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
     return;
 }
 
@@ -780,7 +898,7 @@ void DisplayItrNegMapLog (uint32_t eid)
 {
     char  buf[LISP_MAX_IP_STR_LEN];
 
-    printf ("ITR: Negative mapping for eid:%s!! Dropping packet..\r\n",
+    printf ("ITR: Negative mapping for EID %s!! Dropping packet..\r\n",
             inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
     return;
 }
@@ -789,7 +907,7 @@ void DisplayItrTxLispEncpPktLog (uint32_t rloc)
 {
     char  buf[LISP_MAX_IP_STR_LEN];
 
-    printf ("ITR: Forwarding LISP encapsulated packet to RLOC:%s..\r\n\n",
+    printf ("ITR: Forwarding LISP encapsulated packet to RLOC %s..\r\n\n",
             inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
     return;
 }
@@ -798,7 +916,7 @@ void DisplayItrMobileEidDiscLog (uint32_t eid)
 {
     char  buf[LISP_MAX_IP_STR_LEN];
 
-    printf ("ITR: Mobile EID:%s discovered!! Sending Map-Register..\r\n",
+    printf ("ITR: Mobile EID %s discovered!! Sending Map-Register..\r\n",
             inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
     return;
 }
@@ -807,11 +925,11 @@ void DisplayItrAddMapCacheLog (uint32_t eid, uint8_t prefLen, uint32_t rloc)
 {
     char  buf[LISP_MAX_IP_STR_LEN];
 
-    printf ("ITR: Received Map-Reply from Map-Server/Map-Resolver!! Adding "
-            "mapping entry for ");
-    printf ("EID:%s/%d, ", inet_ntop (AF_INET, &eid, buf, sizeof (buf)), 
+    printf ("ITR: Received Map-Reply from Map-Server/Map-Resolver!!\r\n"
+            "Adding mapping entry for ");
+    printf ("EID %s/%d, ", inet_ntop (AF_INET, &eid, buf, sizeof (buf)), 
             prefLen);
-    printf ("RLOC:%s\r\n", inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
+    printf ("RLOC %s\r\n", inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
     return;
 }
 
@@ -820,7 +938,7 @@ void DisplayItrSMReqLog (uint32_t eid)
     char  buf[LISP_MAX_IP_STR_LEN];
 
     printf ("ITR: Solicit Map-Request received!! Sending Map-Request for ");
-    printf ("EID:%s..\r\n", inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    printf ("EID %s..\r\n", inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
     return;
 }
 
@@ -828,9 +946,9 @@ void DisplayEtrMovedEidLog (uint32_t eid, uint32_t rloc)
 {
     char  buf[LISP_MAX_IP_STR_LEN];
 
-    printf ("ETR: Packet received for moved EID:%s!! ",
+    printf ("ETR: Packet received for moved EID %s!! ",
             inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
-    printf ("Sending Solicit-Map-Request to ITR RLOC:%s..\r\n", 
+    printf ("Sending Solicit-Map-Request to ITR RLOC %s..\r\n", 
             inet_ntop (AF_INET, &rloc, buf, sizeof (buf)));
     return;
 }
@@ -839,7 +957,7 @@ void DisplayEtrEndSysEidNotPresentLog (uint32_t eid)
 {
     char  buf[LISP_MAX_IP_STR_LEN];
 
-    printf ("ETR: Packet received for EID:%s that is not present in "
+    printf ("ETR: Packet received for EID %s that is not present in "
             "LISP site!! Dropping packet..\r\n",
             inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
     return;
@@ -850,8 +968,8 @@ void DisplayEtrTxEndSysPktLog (uint32_t srcEid, uint32_t dstEid)
     char  buf[LISP_MAX_IP_STR_LEN];
     
     printf ("ETR: Forwarding end system packet from ");
-    printf ("srcEid:%s, to ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
-    printf ("dstEid:%s\r\n\n", inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)));
+    printf ("%s, to ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
+    printf ("%s\r\n\n", inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)));
     return;
 }
 
@@ -859,8 +977,28 @@ void DisplayEtrMapNotifyRxLog (uint32_t eid, uint8_t prefLen)
 {
     char  buf[LISP_MAX_IP_STR_LEN];
 
-    printf ("ETR: Map-Notify received for EID-prefix:%s/%d!! ",
+    printf ("ETR: Map-Notify received for EID-prefix %s/%d!! ",
             inet_ntop (AF_INET, &eid, buf, sizeof (buf)), prefLen);
     printf ("Adding this to moved EID list..\r\n");
+    return;
+}
+
+void DisplayEtrMapNotifyMobLog (uint32_t eid, uint8_t prefLen)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ETR: Map-Notify received for EID-prefix %s/%d!! ",
+            inet_ntop (AF_INET, &eid, buf, sizeof (buf)), prefLen);
+    printf ("Removing this from mobile EID list..\r\n");
+    return;
+}
+
+void DisplayItrMovedEidReturnLog (uint32_t eid)
+{
+    char  buf[LISP_MAX_IP_STR_LEN];
+
+    printf ("ITR: Packet received from moved EID %s!!\r\n",
+            inet_ntop (AF_INET, &eid, buf, sizeof (buf)));
+    printf ("Moved EID has returned to LISP site, sending Map-Register..\r\n");
     return;
 }

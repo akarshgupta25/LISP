@@ -145,6 +145,7 @@ int LispRecvLispEncpPkt (int sockFd)
         }
     }
 
+#if 0
     switch (isPktConfigEidMatch)
     {
         case LISP_TRUE:
@@ -182,6 +183,37 @@ int LispRecvLispEncpPkt (int sockFd)
 
         default:
             return LISP_FAILURE;
+    }
+#endif
+
+    /* Packets destined to moved EIDs should not be processed
+     * Send SMR message to ITR informing change of mapping */
+    if (LispGetMovedEidEntry (dstEid) != NULL)
+    {
+        DisplayEtrMovedEidLog (dstEid, itrAddr.sin_addr.s_addr);
+        LispSendSolicitMapRequest (srcEid, dstEid, itrAddr, 
+                                   itrAddrLen);
+        return LISP_SUCCESS;
+    }
+
+    if (isPktConfigEidMatch == LISP_FALSE)
+    {
+        /* Packets destined to only mobile EIDs should be processed
+         * Drop all other packets */
+        for (eidIfNum = 0; eidIfNum < gLispGlob.numEidIf; eidIfNum++)
+        {
+            if (LispGetMobileEidEntry (dstEid, eidIfNum) != NULL)
+            {
+                isMobileEidPresent = LISP_TRUE;
+                break;
+            }
+        }
+        if (isMobileEidPresent != LISP_TRUE)
+        {
+            /* Eid is not connected to this ETR */
+            DisplayEtrEndSysEidNotPresentLog (dstEid);
+            return LISP_SUCCESS;
+        }
     }
 
     /* Update source EID to RLOC mapping in local cache */
@@ -409,6 +441,8 @@ int LispProcessMapNotify (uint8_t *pCntrlPkt, uint16_t cntrlPktLen)
 {
     tMapNotifyHdr    *pMapNotifyMsg = NULL;
     tRlocRecord      *pRlocRec = NULL;
+    uint8_t          eidIfNum = 0;
+    uint8_t          isMobileEid = LISP_FALSE;
 
     if (pCntrlPkt == NULL)
     {
@@ -425,18 +459,31 @@ int LispProcessMapNotify (uint8_t *pCntrlPkt, uint16_t cntrlPktLen)
 
     pRlocRec = (tRlocRecord *)
                 (((uint8_t *) pMapNotifyMsg) + sizeof (tMapNotifyHdr));
-#if 0
-    if (pRlocRec->locCount == 0)
+
+    /* Delete mobile device from mobile EID list if Map-Notify is
+     * received for the mobile device */
+    for (eidIfNum = 0; eidIfNum < gLispGlob.numEidIf; eidIfNum++)
     {
-        printf ("Loc not present in Map-Notify message!!\r\n");
-        return LISP_SUCCESS:
+        if (LispGetMobileEidEntry (pRlocRec->eidPrefix, eidIfNum) != NULL)
+        {
+            isMobileEid = LISP_TRUE;
+            break;
+        }
     }
-#endif
+    if (isMobileEid == LISP_TRUE)
+    {
+        DisplayEtrMapNotifyMobLog (pRlocRec->eidPrefix, pRlocRec->eidPrefLen);
+        LispDelMobileEidEntry (pRlocRec->eidPrefix, pRlocRec->eidPrefLen,
+                               eidIfNum);
+    }
 
+    /* Map-Notify is received as local LISP site device has moved to
+     * some other ETR */
     DisplayEtrMapNotifyRxLog (pRlocRec->eidPrefix, pRlocRec->eidPrefLen);
-
-    /* Map-Notify is Rx when end system has moved to some other ETR */
     LispAddMovedEidEntry (pRlocRec->eidPrefix, pRlocRec->eidPrefLen);
+
+    DumpMovedEidList();
+    DumpMobileEidList();
 
     return LISP_SUCCESS;
 }

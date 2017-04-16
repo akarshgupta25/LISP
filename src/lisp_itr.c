@@ -123,30 +123,12 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
     ethType = htons (LISP_ARP_ETHTYPE);
     if (!memcmp (endSysData + l3HdrOffset, &ethType, sizeof (ethType)))
     {
-#if 0
-        /* If ARP is received from mobile device then add to mobile device
-         * list, and then drop packet */
-        pArpHdr = (tArpHdr *) (endSysData + l3HdrOffset + sizeof (ethType));
-        memcpy (&srcEid, pArpHdr->srcIpAddr, sizeof (srcEid));
-        memcpy (&dstEid, pArpHdr->dstIpAddr, sizeof (dstEid));
-        if (((srcEid & gLispGlob.eidRlocMap[eidIfNum].eidPrefix.mask) !=
-              gLispGlob.eidRlocMap[eidIfNum].eidPrefix.eid) && 
-             (srcEid != ifIpAddr)) /* packet is not sent by local host */
-        {
-            if (LispGetMobileEidEntry (srcEid, eidIfNum) == NULL)
-            {
-                DisplayItrMobileEidDiscLog (srcEid);
-                LispSendMapRegister (srcEid, LISP_MAX_PREF_LEN,
-                                     gLispGlob.eidRlocMap[eidIfNum].rloc);
-                LispAddMobileEidEntry (srcEid, LISP_MAX_PREF_LEN, eidIfNum,
-                                       srcMacAddr);
-            }
-        }
-#endif
         pArpHdr = (tArpHdr *) (endSysData + l3HdrOffset + sizeof (ethType));
         LispItrProcessEndSysArpPkt (pArpHdr, eidIfNum, srcMacAddr);
 
+#if 0
         printf ("Pkt received from end system is not IP!!\r\n");
+#endif
         return LISP_SUCCESS;
     }
 
@@ -154,7 +136,9 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
     ethType = htons (LISP_IPV4_ETHTYPE);
     if (memcmp (endSysData + l3HdrOffset, &ethType, sizeof (ethType)))
     {
+#if 0
         printf ("Pkt Rx on raw socket is not IP!!\r\n");
+#endif
         return LISP_SUCCESS;
     }
     l3HdrOffset += sizeof (ethType);
@@ -163,16 +147,19 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
     dstEid = pIpv4Pkt->dstIpAddr;
     srcEid = pIpv4Pkt->srcIpAddr;
 
-    if (srcEid != ifIpAddr)
+    /* Do not process local host transmitted packets */
+    if (srcEid == ifIpAddr)
     {
-        LispItrUpdateEndSysArpEntry (srcEid, srcMacAddr);
+        printf ("Local host Tx packet, do not process!!\r\n");
+        return LISP_SUCCESS;
     }
+
+    LispItrUpdateEndSysArpEntry (srcEid, srcMacAddr);
 
     /* If source EID is different from ETR EID-prefix then it is 
      * received from a mobile device */
-    if (((srcEid & gLispGlob.eidRlocMap[eidIfNum].eidPrefix.mask) !=
-         gLispGlob.eidRlocMap[eidIfNum].eidPrefix.eid) &&
-        (srcEid != ifIpAddr)) /* packet is not sent by local host */
+    if ((srcEid & gLispGlob.eidRlocMap[eidIfNum].eidPrefix.mask) !=
+         gLispGlob.eidRlocMap[eidIfNum].eidPrefix.eid)
     {
         /* Check if srcEid is present in list of registered mobile devices:
          * 1) If present then continue processing the packet
@@ -185,19 +172,33 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
                                  gLispGlob.eidRlocMap[eidIfNum].rloc);
             LispAddMobileEidEntry (srcEid, LISP_MAX_PREF_LEN, eidIfNum,
                                    srcMacAddr);
-            return LISP_SUCCESS; /* NOTE: Check whether this is needed */
+            LispDelMovedEidEntry (srcEid, LISP_MAX_PREF_LEN);
+            DumpMovedEidList();
+            DumpMobileEidList();
+        }
+    }
+    else
+    {
+        /* Packet received from end system in the same EID-prefix:
+         * If srcEid is present in moved Eid list, then a moved Eid
+         * has returned to LISP site. Send Map-Register */
+        if (LispGetMovedEidEntry (srcEid) != NULL)
+        {
+            DisplayItrMovedEidReturnLog (srcEid);
+            LispSendMapRegister (srcEid, LISP_MAX_PREF_LEN,
+                                 gLispGlob.eidRlocMap[eidIfNum].rloc);
+            LispDelMovedEidEntry (srcEid, LISP_MAX_PREF_LEN);
+            DumpMovedEidList();
+            DumpMobileEidList();
         }
     }
 
-    if ((dstEid == ifIpAddr) || (srcEid == ifIpAddr))
+    /* Do not further process local host destined packets */
+    if (dstEid == ifIpAddr)
     {
-        printf ("Local host packet, do not process!!\r\n");
+        printf ("Local host Rx packet, do not process!!\r\n");
         return LISP_SUCCESS;
     }
-
-#if 0
-    DumpPacket ((char *) pIpv4Pkt, dataLen - l3HdrOffset);
-#endif
 
     DumpItrRxEndSysPkt (srcEid, dstEid);
 
@@ -481,11 +482,17 @@ int LispItrProcessEndSysArpPkt (tArpHdr *pArpHdr, uint8_t eidIfNum,
     memcpy (&srcEid, pArpHdr->srcIpAddr, sizeof (srcEid));
     memcpy (&dstEid, pArpHdr->dstIpAddr, sizeof (dstEid));
 
+    if (srcEid == ifIpAddr)
+    {
+        return LISP_SUCCESS;
+    }
+
+    LispItrUpdateEndSysArpEntry (srcEid, pSrcMacAddr);
+
     /* If ARP is received from mobile device then add to mobile device
      * list */
-    if (((srcEid & gLispGlob.eidRlocMap[eidIfNum].eidPrefix.mask) !=
-        gLispGlob.eidRlocMap[eidIfNum].eidPrefix.eid) &&
-        (srcEid != ifIpAddr)) /* packet is not sent by local host */
+    if ((srcEid & gLispGlob.eidRlocMap[eidIfNum].eidPrefix.mask) !=
+        gLispGlob.eidRlocMap[eidIfNum].eidPrefix.eid)
     {
         if (LispGetMobileEidEntry (srcEid, eidIfNum) == NULL)
         {
@@ -494,13 +501,25 @@ int LispItrProcessEndSysArpPkt (tArpHdr *pArpHdr, uint8_t eidIfNum,
                                  gLispGlob.eidRlocMap[eidIfNum].rloc);
             LispAddMobileEidEntry (srcEid, LISP_MAX_PREF_LEN, eidIfNum,
                                    pSrcMacAddr);
+            LispDelMovedEidEntry (srcEid, LISP_MAX_PREF_LEN);
+            DumpMovedEidList();
+            DumpMobileEidList();
         }
     }
-
-    /* packet is not sent by local host */
-    if (srcEid != ifIpAddr)
+    else
     {
-        LispItrUpdateEndSysArpEntry (srcEid, pSrcMacAddr);
+        /* ARP received from end system in the same EID-prefix:
+         * If srcEid is present in moved Eid list, then a moved Eid
+         * has returned to LISP site. Send Map-Register */
+        if (LispGetMovedEidEntry (srcEid) != NULL)
+        {
+            DisplayItrMovedEidReturnLog (srcEid);
+            LispSendMapRegister (srcEid, LISP_MAX_PREF_LEN,
+                                 gLispGlob.eidRlocMap[eidIfNum].rloc);
+            LispDelMovedEidEntry (srcEid, LISP_MAX_PREF_LEN);
+            DumpMovedEidList();
+            DumpMobileEidList();
+        }
     }
 
     return LISP_SUCCESS;
