@@ -150,7 +150,9 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
     /* Do not process local host transmitted packets */
     if (srcEid == ifIpAddr)
     {
+#if 0
         printf ("Local host Tx packet, do not process!!\r\n");
+#endif
         return LISP_SUCCESS;
     }
 
@@ -196,7 +198,9 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
     /* Do not further process local host destined packets */
     if (dstEid == ifIpAddr)
     {
+#if 0
         printf ("Local host Rx packet, do not process!!\r\n");
+#endif
         return LISP_SUCCESS;
     }
 

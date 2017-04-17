@@ -308,6 +308,7 @@ int LispSendMapRegister (uint32_t eid, uint8_t eidPrefLen, uint32_t rloc)
     pRlocRec->recTtl = htonl (LISP_DEF_RECORD_TLL);
     pRlocRec->locCount = 1;
     pRlocRec->eidPrefLen = eidPrefLen;
+    pRlocRec->mapVerNum = htons (LISP_DEF_MAP_VER_NUM);
     pRlocRec->eidPrefixAfi = htons (LISP_IPV4_AFI);
     pRlocRec->eidPrefix = eid;
 
