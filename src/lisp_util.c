@@ -254,11 +254,56 @@ tEidPrefixRlocMap *LispGetEidToRlocMap (uint32_t eid)
     return pBestCacheEntry;
 }
 
+tEidPrefixRlocMap *LispGetExactMatchEidMapEntry (uint32_t eid, uint8_t prefLen)
+{
+    tEidPrefixRlocMap  *pMapCacheEntry = NULL;
+    struct list_head   *pList = NULL;
+    uint32_t           mask = 0;
+
+    if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
+    {
+        printf ("[%s]: Invalid prefix length!!\r\n", __func__);
+        return NULL;
+    }
+    mask = htonl (mask);
+
+    pthread_mutex_lock (&gLispGlob.itrMapCacheLock);
+
+    list_for_each (pList, &gLispGlob.itrEidRlocMapCacheHead)
+    {
+        pMapCacheEntry = (tEidPrefixRlocMap *) pList;
+        if ((pMapCacheEntry->eidPrefix.eid == (eid & mask)) &&
+            (pMapCacheEntry->eidPrefix.mask == mask))
+        {
+            pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
+            return pMapCacheEntry;
+        }
+    }
+
+    pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
+    return NULL;
+}
+
 int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
                             uint32_t recTtl)
 {
     tEidPrefixRlocMap *pMapCacheEntry = NULL;
+    tEidPrefixRlocMap *pExactMatchCacheEntry = NULL;
     uint32_t          mask = 0;
+
+    pExactMatchCacheEntry = LispGetExactMatchEidMapEntry (eid, prefLen);
+    if (pExactMatchCacheEntry != NULL)
+    {
+        /* Similar previous entry exists in local cache, modify that entry
+         * to avoid duplication of entries */
+        pthread_mutex_lock (&gLispGlob.itrMapCacheLock);
+        pExactMatchCacheEntry->rloc = rloc;
+        pExactMatchCacheEntry->recTtl = recTtl;
+        pthread_mutex_unlock (&gLispGlob.itrMapCacheLock);
+
+        DumpLocalMapCache();
+        return LISP_SUCCESS;
+    }
 
     pMapCacheEntry = (tEidPrefixRlocMap *) malloc (sizeof (tEidPrefixRlocMap));
     if (pMapCacheEntry == NULL)
@@ -269,6 +314,7 @@ int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
 
     if (LispConvertPrefixLenToMask (prefLen, &mask) != LISP_SUCCESS)
     {
+        printf ("[%s]: Invalid prefix length!!\r\n", __func__);
         free (pMapCacheEntry);
         pMapCacheEntry = NULL;
         return LISP_FAILURE;

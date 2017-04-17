@@ -31,10 +31,11 @@
 #define LISP_MTU_SIZE     1500
 #define LISP_IPV4_VERSION 4
 
-#define LISP_HDR_LEN      8
-#define LISP_MAC_ADDR_LEN 6
-#define LISP_VLAN_TAG_LEN 4
-#define LISP_L2_HDR_LEN   14
+#define LISP_HDR_LEN       8
+#define LISP_MAC_ADDR_LEN  6
+#define LISP_VLAN_TAG_LEN  4
+#define LISP_L2_HDR_LEN    14
+#define LISP_IPV4_ADDR_LEN 4
 
 #define LISP_VLAN_TPID       0x8100
 #define LISP_ARP_ETHTYPE     0x0806
@@ -46,7 +47,10 @@
 #define LISP_IP_HDR_OFFSET (LISP_ETHTYPE_OFFSET + 2)
 
 #define LISP_DEF_AUTH_DATA_LEN 4
-#define LISP_DEF_RECORD_TLL    0
+#define LISP_DEF_RECORD_TLL    0xffffffff
+#define LISP_NEG_MAP_REP_TTL1  15
+#define LISP_NEG_MAP_REP_TTL2  1
+#define LISP_NEG_MAP_REP_RLOC  0
 #define LISP_DEF_MAP_VER_NUM   1
 
 #define LISP_MAX_IP_STR_LEN    16
@@ -71,6 +75,8 @@ int LispGetIfIpAddr (uint8_t eidIfNum, uint32_t *pIfAddr);
 int LispGetEndSysMacAddr (uint32_t ipAddr, uint8_t eidIfNum, uint8_t *pMacAddr);
 int LispGetIfMacAddr (uint8_t eidIfNum, uint8_t *pIfMacAddr);
 struct __tEidPrefixRlocMap *LispGetEidToRlocMap (uint32_t dstEid);
+struct __tEidPrefixRlocMap *LispGetExactMatchEidMapEntry (uint32_t eid, 
+                                                          uint8_t prefLen);
 uint8_t LispConvertMaskToPrefLen (uint32_t mask);
 int LispAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
                             uint32_t recTtl);

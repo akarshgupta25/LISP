@@ -149,7 +149,8 @@ int LispMSMRProcessMapRequest (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
     if (pMapDbEntry == NULL)
     {
         printf ("Mapping does not exist!! Sending negative Map-Reply..\r\n");
-        /* NOTE: Send negative Map-Reply message */
+        LispSendMapReply (dstEid, mask, htonl (LISP_NEG_MAP_REP_RLOC),
+                          htonl (LISP_NEG_MAP_REP_TTL1), itrAddr, itrAddrLen);
         return LISP_SUCCESS;
     }
 
@@ -159,11 +160,12 @@ int LispMSMRProcessMapRequest (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
         /* NOTE: Forward message to appropriate ETR */
         return LISP_SUCCESS;
     }
-    if (pMapDbEntry->rloc == 0)
+    if (pMapDbEntry->rloc == (htonl (LISP_NEG_MAP_REP_RLOC)))
     {
         printf ("RLOC not present for requested EID-prefix!! "
                 "Sending negative Map-Reply..\r\n");
-        /* NOTE: Send negative Map-Reply message */
+        LispSendMapReply (dstEid, mask, htonl (LISP_NEG_MAP_REP_RLOC),
+                          htonl (LISP_NEG_MAP_REP_TTL2), itrAddr, itrAddrLen);
         return LISP_SUCCESS;
     }
 
@@ -317,7 +319,7 @@ uint8_t *LispConstructMapReply (uint32_t eid, uint8_t prefLen, uint32_t rloc,
         return NULL;
     }
 
-    locLen = (rloc != 0) ? sizeof (tRlocLoc) : 0;
+    locLen = (rloc != htonl (LISP_NEG_MAP_REP_RLOC)) ? sizeof (tRlocLoc) : 0;
     mapRepMsgLen = sizeof (tMapRepHdr) + sizeof (tRlocRecord) + locLen;
     *pMapRepMsgLen = mapRepMsgLen;
 
@@ -327,7 +329,7 @@ uint8_t *LispConstructMapReply (uint32_t eid, uint8_t prefLen, uint32_t rloc,
         printf ("Failed to allocate memory to Map-Reply message!!\r\n");
         return NULL;
     }
-    memset (pMapRepMsg, 0, sizeof (mapRepMsgLen));
+    memset (pMapRepMsg, 0, mapRepMsgLen);
 
     pMapRepMsg->type = LISP_MAP_REP_MSG;
     pMapRepMsg->recordCount = 1;
@@ -340,8 +342,9 @@ uint8_t *LispConstructMapReply (uint32_t eid, uint8_t prefLen, uint32_t rloc,
     pRlocRec->eidPrefixAfi = htons (LISP_IPV4_AFI);
     pRlocRec->eidPrefix = eid;
 
-    if (rloc == 0)
+    if (rloc == htonl (LISP_NEG_MAP_REP_RLOC))
     {
+        pRlocRec->act = LISP_ACTION_DROP;
         return ((uint8_t *) pMapRepMsg);
     }
     pRlocRec->locCount = 1;

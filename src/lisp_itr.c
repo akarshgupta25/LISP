@@ -213,7 +213,7 @@ int LispRecvEndSysPkt (uint8_t eidIfNum)
     }
 
     /* Drop packet if RLOC is not present in mapping */    
-    if (pEidRlocMapEntry->rloc == 0)
+    if (pEidRlocMapEntry->rloc == (htonl (LISP_NEG_MAP_REP_RLOC)))
     {
         DisplayItrNegMapLog (dstEid);
         return LISP_SUCCESS;
@@ -256,6 +256,7 @@ int LispRecvMapSRPkt (int sockFd)
     uint16_t            mapSRDataLen = 0;
     uint32_t            eid = 0;
     uint32_t            mask = 0;
+    uint32_t            rloc = 0;
 
     memset (mapSRData, 0, sizeof (mapSRData));
     memset (&mapSRAddr, 0, sizeof (mapSRAddr));
@@ -286,11 +287,6 @@ int LispRecvMapSRPkt (int sockFd)
 
     pRlocRec = (tRlocRecord *)
                (((uint8_t *) pMapRepMsg) + sizeof (tMapRepHdr));
-    if (pRlocRec->locCount == 0)
-    {
-        /* NOTE: Negative Map-Reply received */
-        return LISP_SUCCESS;
-    }
 
     if (LispConvertPrefixLenToMask (pRlocRec->eidPrefLen, &mask)
         != LISP_SUCCESS)
@@ -301,12 +297,20 @@ int LispRecvMapSRPkt (int sockFd)
     mask = htonl (mask);
     eid = pRlocRec->eidPrefix & mask;
     
-    pLoc = (tRlocLoc *)
-           (((uint8_t *) pRlocRec) + sizeof (tRlocRecord));
+    if (pRlocRec->locCount == 0)
+    {
+        /* Negative Map-Reply received */
+        rloc = htonl (LISP_NEG_MAP_REP_RLOC);
+    }
+    else
+    {
+        pLoc = (tRlocLoc *)
+               (((uint8_t *) pRlocRec) + sizeof (tRlocRecord));
+        rloc = pLoc->rloc;
+    }
 
-    DisplayItrAddMapCacheLog (eid, pRlocRec->eidPrefLen, pLoc->rloc);
-
-    LispAddRlocEidMapEntry (eid, pRlocRec->eidPrefLen, pLoc->rloc, 
+    DisplayItrAddMapCacheLog (eid, pRlocRec->eidPrefLen,rloc); 
+    LispAddRlocEidMapEntry (eid, pRlocRec->eidPrefLen, rloc,
                             pRlocRec->recTtl);
 
     return LISP_SUCCESS;
@@ -505,6 +509,13 @@ int LispItrProcessEndSysArpPkt (tArpHdr *pArpHdr, uint8_t eidIfNum,
             DumpMovedEidList();
             DumpMobileEidList();
         }
+
+        /* Send ARP reply because kernel may not have route entry
+         * to send reply to mobile device */
+        if (pArpHdr->opCode == (htons (LISP_ARP_REQ_OPCODE)))
+        {
+            LispSendArpReply (pArpHdr, eidIfNum);
+        }
     }
     else
     {
@@ -522,5 +533,59 @@ int LispItrProcessEndSysArpPkt (tArpHdr *pArpHdr, uint8_t eidIfNum,
         }
     }
 
+    return LISP_SUCCESS;
+}
+
+int LispSendArpReply (tArpHdr *pArpReqPkt, uint8_t eidIfNum)
+{
+    uint8_t   *pArpReplyMsg = NULL;
+    tArpHdr   *pArpRepHdr = NULL;
+    uint16_t  arpRepMsgLen = 0;
+    uint16_t  ethType = 0;
+    uint8_t   ifMacAddr[LISP_MAC_ADDR_LEN];
+
+    if (pArpReqPkt == NULL)
+    {
+        printf ("[%s]: Invalid Parameter!!\r\n", __func__);
+        return LISP_FAILURE;
+    }
+
+    memset (ifMacAddr, 0, sizeof (ifMacAddr));
+    if (LispGetIfMacAddr (eidIfNum, ifMacAddr) != LISP_SUCCESS)
+    {
+        printf ("Failed to fetch interface MAC address!!\r\n");
+        return LISP_FAILURE;
+    }
+
+    arpRepMsgLen = LISP_L2_HDR_LEN + sizeof (tArpHdr);
+    pArpReplyMsg = (uint8_t *) malloc (arpRepMsgLen);
+    if (pArpReplyMsg == NULL)
+    {
+        printf ("Failed to allocate memory to ARP Reply message!!\r\n");
+        return LISP_FAILURE;
+    }
+    memset (pArpReplyMsg, 0, arpRepMsgLen);
+
+    pArpRepHdr = (tArpHdr *) (pArpReplyMsg + LISP_L2_HDR_LEN);
+    pArpRepHdr->hwType = pArpReqPkt->hwType;
+    pArpRepHdr->protType = pArpReqPkt->protType;
+    pArpRepHdr->hwAddrLen = LISP_MAC_ADDR_LEN;
+    pArpRepHdr->protAddrLen = pArpReqPkt->protAddrLen;
+    pArpRepHdr->opCode = htons (LISP_ARP_REP_OPCODE);
+    memcpy (pArpRepHdr->srcHwAddr, ifMacAddr, LISP_MAC_ADDR_LEN);
+    memcpy (pArpRepHdr->srcIpAddr, pArpReqPkt->dstIpAddr, LISP_IPV4_ADDR_LEN);
+    memcpy (pArpRepHdr->dstHwAddr, pArpReqPkt->srcHwAddr, LISP_MAC_ADDR_LEN);
+    memcpy (pArpRepHdr->dstIpAddr, pArpReqPkt->srcIpAddr, LISP_IPV4_ADDR_LEN);
+
+    memcpy (pArpReplyMsg, pArpReqPkt->srcHwAddr, LISP_MAC_ADDR_LEN);
+    memcpy (pArpReplyMsg + LISP_SMAC_OFFSET, ifMacAddr, LISP_MAC_ADDR_LEN);
+    ethType = htons (LISP_ARP_ETHTYPE);
+    memcpy (pArpReplyMsg + LISP_ETHTYPE_OFFSET, &ethType, sizeof (ethType));
+    memcpy (pArpReplyMsg + LISP_L2_HDR_LEN, pArpRepHdr, sizeof (tArpHdr));
+
+    send (gLispGlob.rawSockFd[eidIfNum], pArpReplyMsg, arpRepMsgLen, 0);
+
+    free (pArpReplyMsg);
+    pArpReplyMsg = NULL;
     return LISP_SUCCESS;
 }

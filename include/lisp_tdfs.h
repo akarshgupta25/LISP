@@ -156,9 +156,15 @@ typedef struct
     uint32_t   recTtl;
     uint8_t    locCount;
     uint8_t    eidPrefLen;
+#if 0
     uint16_t   rsvd1:12;
     uint16_t   authBit:1;
     uint16_t   act:3;
+#endif
+    uint8_t    rsvd:4;
+    uint8_t    authBit:1;
+    uint8_t    act:3;
+    uint8_t    rsvd1;
     uint16_t   mapVerNum:12;
     uint16_t   rsvd2:4;
     uint16_t   eidPrefixAfi;
@@ -262,6 +268,20 @@ enum
     LISP_IPV6_AFI
 };
 
+enum
+{
+    LISP_ACTION_NO_ACTION,
+    LISP_ACTION_NATIVE_FWD,
+    LISP_ACTION_SND_MAP_REQ,
+    LISP_ACTION_DROP
+};
+
+enum
+{
+    LISP_ARP_REQ_OPCODE = 1,
+    LISP_ARP_REP_OPCODE
+};
+
 /* Kernel linked list implementation functions */
 #define list_for_each(pos, head) \
     for (pos = (head)->next; pos != (head); pos = pos->next)
@@ -353,8 +373,8 @@ list_del_init (struct list_head *entry)
 uint8_t *LispConstructMapRequest (uint32_t srcEid, uint32_t srcRloc,
                                   uint32_t dstEid, uint8_t dstEidPrefLen,
                                   tMapReqFlags flags, uint16_t *pMsgLen);
-
 int LispItrProcessEndSysArpPkt (tArpHdr *pArpHdr, uint8_t eidIfNum,
                                 uint8_t *pSrcMacAddr);
+int LispSendArpReply (tArpHdr *pArpReqPkt, uint8_t eidIfNum);
 
 #endif /* __LISP_TDFS_H__ */
