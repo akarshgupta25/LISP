@@ -276,6 +276,8 @@ int LispMSMRProcessMapRegister (uint8_t *pCntrlPkt, uint16_t cntrlPktLen,
         /* NOTE: Send Map-Notify to ETR */
     }
    
+    DumpMSMRMapDb();
+
     return LISP_SUCCESS;
 }
 
@@ -440,8 +442,6 @@ int LispMSMRAddRlocEidMapEntry (uint32_t eid, uint8_t prefLen, uint32_t rloc,
     list_add_head ((struct list_head *) pMapDbEntry,
                    &gLispMSMRGlob.eidRlocMapDbHead);
 
-    DumpMSMRMapDb();
-
     return LISP_SUCCESS;
 }
 
@@ -472,8 +472,6 @@ int LispMSMRDelRlocEidMapEntry (uint32_t eid, uint8_t prefLen)
         pMapDbEntry = NULL;
         break;
     }
-
-    DumpMSMRMapDb();
 
     return LISP_SUCCESS;
 }

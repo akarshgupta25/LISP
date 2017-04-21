@@ -89,9 +89,8 @@ typedef struct
     uint8_t    echoNoReqBit:1;
     uint8_t    locStatBit:1;
     uint8_t    nonceBit:1;
-    uint8_t    nonceHigh;
-    uint16_t   nonceLow;
-    uint32_t   instIdLocStat;
+    uint8_t    nonceMapVer[3];
+    uint8_t    instIdLocStat[4];
 } tLispHdr;
 
 typedef struct __tMapReqFlags

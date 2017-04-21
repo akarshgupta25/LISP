@@ -926,7 +926,7 @@ void DumpItrRxEndSysPkt (uint32_t srcEid, uint32_t dstEid)
     char  buf[LISP_MAX_IP_STR_LEN];
     
     printf ("ITR: Packet Rx from ");
-    printf ("%s, to ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
+    printf ("%s to ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
     printf ("%s\r\n", inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)));
     return;
 }
@@ -1014,7 +1014,7 @@ void DisplayEtrTxEndSysPktLog (uint32_t srcEid, uint32_t dstEid)
     char  buf[LISP_MAX_IP_STR_LEN];
     
     printf ("ETR: Forwarding end system packet from ");
-    printf ("%s, to ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
+    printf ("%s to ", inet_ntop (AF_INET, &srcEid, buf, sizeof (buf)));
     printf ("%s\r\n\n", inet_ntop (AF_INET, &dstEid, buf, sizeof (buf)));
     return;
 }

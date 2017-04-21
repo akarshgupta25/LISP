@@ -370,6 +370,7 @@ int LispSendMapRequest (uint32_t srcEid, uint32_t dstEid)
 uint8_t *LispEncapDataPkt (uint8_t *pEndSysData, uint32_t dataLen,
                            uint16_t *pDataPktLen)
 {
+    tLispHdr  *pLispHdr = NULL;
     uint8_t   *pDataPkt = NULL;
     uint16_t   dataPktLen = 0;
 
@@ -388,7 +389,15 @@ uint8_t *LispEncapDataPkt (uint8_t *pEndSysData, uint32_t dataLen,
     memset (pDataPkt, 0, dataPktLen);
 
     /* Set LISP header values */
-    /* Nothing set in LISP header presently */
+    pLispHdr = (tLispHdr *) pDataPkt;
+    pLispHdr->mapVerBit = 1;
+    pLispHdr->nonceMapVer[0] = (LISP_DEF_MAP_VER_NUM >> 4) & 0xFF;
+    pLispHdr->nonceMapVer[1] = ((LISP_DEF_MAP_VER_NUM & 0xF) << 4) & 0xF0;
+    pLispHdr->nonceMapVer[1] |= ((LISP_DEF_MAP_VER_NUM >> 8) & 0xF);
+    pLispHdr->nonceMapVer[2] = LISP_DEF_MAP_VER_NUM & 0xFF;
+    
+    pLispHdr->locStatBit = 1;
+    pLispHdr->instIdLocStat[3] |= 0x1;
 
     /* Copy original IP packet */
     memcpy (pDataPkt + LISP_HDR_LEN, pEndSysData, dataLen);
